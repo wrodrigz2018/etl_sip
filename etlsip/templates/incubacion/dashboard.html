@@ -1,0 +1,702 @@
+{% extends "incubacion/base.html" %}
+{% load static %}
+
+{% block title %}Panel ETL - Ejecutor de ETLs{% endblock %}
+
+{% block extra_css %}
+<style>
+    .form-section {
+        margin-bottom: 3rem;
+    }
+    .status-badge {
+        font-weight: bold;
+        padding: 0.5rem 1rem;
+    }
+    .status-success {
+        background-color: #28a745;
+        color: white;
+    }
+    .status-failed {
+        background-color: #dc3545;
+        color: white;
+    }
+    .status-dry-run {
+        background-color: #ffc107;
+        color: black;
+    }
+    .status-running {
+        background-color: #17a2b8;
+        color: white;
+    }
+    .progress-container {
+        display: none;
+        margin-top: 1rem;
+    }
+    .command-line {
+        background-color: #f8f9fa;
+        padding: 1rem;
+        border-radius: 0.5rem;
+        font-family: monospace;
+        font-size: 0.85rem;
+        word-break: break-all;
+        border-left: 4px solid #3498db;
+    }
+    .table-responsive {
+        max-height: 600px;
+        overflow-y: auto;
+    }
+    .preview-table {
+        font-size: 0.85rem;
+    }
+    .preview-table th {
+        position: sticky;
+        top: 0;
+        background-color: #f8f9fa;
+        z-index: 1;
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="container">
+    <div class="row">
+        <!-- Sección de Ejecución -->
+        <div class="col-lg-6 form-section">
+            <div class="card">
+                <div class="card-header bg-primary text-white">
+                    <h5 class="mb-0">▶️ Ejecutar {{ etl_label }}</h5>
+                </div>
+                <div class="card-body">
+                    <form id="etlForm" method="post" action="{% url execute_url %}" novalidate>
+                        {% csrf_token %}
+                        <input type="hidden" name="etl_type" value="{{ selected_etl }}">
+
+                        <!-- Start Date -->
+                        <div class="mb-3">
+                            <label for="{{ form.start_date.id_for_label }}" class="form-label">
+                                Fecha de Inicio
+                            </label>
+                            {{ form.start_date }}
+                            {% if form.start_date.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.start_date.errors.0 }}
+                            </div>
+                            {% endif %}
+                            {% if form.start_date.help_text %}
+                            <small class="form-text text-muted d-block mt-1">
+                                {{ form.start_date.help_text }}
+                            </small>
+                            {% endif %}
+                        </div>
+
+                        <!-- End Date -->
+                        <div class="mb-3">
+                            <label for="{{ form.end_date.id_for_label }}" class="form-label">
+                                Fecha de Fin
+                            </label>
+                            {{ form.end_date }}
+                            {% if form.end_date.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.end_date.errors.0 }}
+                            </div>
+                            {% endif %}
+                            {% if form.end_date.help_text %}
+                            <small class="form-text text-muted d-block mt-1">
+                                {{ form.end_date.help_text }}
+                            </small>
+                            {% endif %}
+                        </div>
+
+                        <!-- Batch Size -->
+                        <div class="mb-3">
+                            <label for="{{ form.batch_size.id_for_label }}" class="form-label">
+                                Tamaño de Lote
+                            </label>
+                            {{ form.batch_size }}
+                            {% if form.batch_size.errors %}
+                            <div class="invalid-feedback d-block">
+                                {{ form.batch_size.errors.0 }}
+                            </div>
+                            {% endif %}
+                            {% if form.batch_size.help_text %}
+                            <small class="form-text text-muted d-block mt-1">
+                                {{ form.batch_size.help_text }}
+                            </small>
+                            {% endif %}
+                        </div>
+
+                        <!-- Dry Run -->
+                        <div class="mb-3 form-check">
+                            {{ form.dry_run }}
+                            <label for="{{ form.dry_run.id_for_label }}" class="form-check-label">
+                                Modo de Prueba (Dry Run)
+                            </label>
+                            {% if form.dry_run.help_text %}
+                            <small class="form-text text-muted d-block mt-1">
+                                {{ form.dry_run.help_text }}
+                            </small>
+                            {% endif %}
+                        </div>
+
+                        <!-- Form errors -->
+                        {% if form.non_field_errors %}
+                        <div class="alert alert-danger alert-dismissible fade show" role="alert">
+                            {% for error in form.non_field_errors %}
+                                <div>{{ error }}</div>
+                            {% endfor %}
+                            <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+                        </div>
+                        {% endif %}
+
+                        <!-- Submit Button -->
+                        <div class="d-grid gap-2 d-sm-flex gap-2">
+                            <button type="button" class="btn btn-info" id="previewBtn" data-bs-toggle="modal" data-bs-target="#previewModal">
+                                👁️ Vista Previa
+                            </button>
+                            <button type="submit" class="btn btn-success flex-grow-1" id="submitBtn">
+                                🚀 Ejecutar ETL
+                            </button>
+                        </div>
+                    </form>
+
+                    <!-- Progress Container -->
+                    <div class="progress-container" id="progressContainer">
+                        <div class="mb-2">
+                            <label>Progreso:</label>
+                            <div class="progress">
+                                <div
+                                    id="progressBar"
+                                    class="progress-bar progress-bar-striped progress-bar-animated"
+                                    role="progressbar"
+                                    style="width: 0%"
+                                    aria-valuenow="0"
+                                    aria-valuemin="0"
+                                    aria-valuemax="100"
+                                ></div>
+                            </div>
+                            <small id="statusMessage" class="text-muted d-block mt-2">Iniciando...</small>
+                        </div>
+                    </div>
+
+                    <!-- Result Container -->
+                    <div id="resultContainer" class="mt-3" style="display: none;">
+                        <div class="alert" id="resultAlert" role="alert">
+                            <h5 id="resultTitle"></h5>
+                            <p id="resultMessage"></p>
+                            <small id="resultDetails" class="d-block text-muted"></small>
+                        </div>
+                    </div>
+
+                    <!-- Summary Container -->
+                    <div id="summaryContainer" class="mt-3" style="display: none;">
+                        <div class="card">
+                            <div class="card-header bg-light">
+                                <h6 class="mb-0">📊 Resumen de Datos Exportados</h6>
+                            </div>
+                            <div class="card-body">
+                                <div id="summaryContent"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Comando CLI equivalente -->
+            <div class="card mt-3">
+                <div class="card-header bg-info text-white">
+                    <h6 class="mb-0">💻 Comando CLI Equivalente</h6>
+                </div>
+                <div class="card-body">
+                    <div class="command-line" id="cliCommand">
+                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% else %}etl_incubacion{% endif %} \<br>
+                        &nbsp;&nbsp;--start-date YYYY-MM-DD \<br>
+                        &nbsp;&nbsp;--end-date YYYY-MM-DD \<br>
+                        &nbsp;&nbsp;--batch-size 1000
+                    </div>
+                    <button class="btn btn-sm btn-outline-info mt-2" onclick="copiarComando()">
+                        📋 Copiar
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sección de Histórico -->
+        <div class="col-lg-6 form-section">
+            <div class="card">
+                <div class="card-header bg-secondary text-white">
+                    <h5 class="mb-0">📜 Histórico de Corridas</h5>
+                </div>
+                <div class="card-body p-0">
+                    <div class="table-responsive">
+                        <table class="table table-sm table-hover mb-0">
+                            <thead class="table-light">
+                                <tr>
+                                    <th>ETL</th>
+                                    <th>Estado</th>
+                                    <th>Fechas</th>
+                                    <th>Filas</th>
+                                    <th>Inicio</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if runs %}
+                                    {% for run in runs %}
+                                    <tr>
+                                        <td>
+                                            <small>
+                                                {% if run.summary_json.etl_type == 'costo_prod_detalle' %}
+                                                    CostoProdDetalle
+                                                {% else %}
+                                                    Incubacion
+                                                {% endif %}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <span class="status-badge status-{{ run.status|lower }}">
+                                                {{ run.get_status_display }}
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <small>{{ run.start_date }} al {{ run.end_date }}</small>
+                                        </td>
+                                        <td>
+                                            <small>
+                                                Ext: {{ run.source_rows }}<br>
+                                                Ins: {{ run.inserted_rows }}
+                                            </small>
+                                        </td>
+                                        <td>
+                                            <small title="{{ run.started_at }}">
+                                                {{ run.started_at|date:"d/m H:i" }}
+                                            </small>
+                                        </td>
+                                    </tr>
+                                    {% if run.error_message %}
+                                    <tr class="table-danger">
+                                        <td colspan="5">
+                                            <small class="text-danger">
+                                                ⚠️ Error: {{ run.error_message|truncatewords:20 }}
+                                            </small>
+                                        </td>
+                                    </tr>
+                                    {% endif %}
+                                    {% endfor %}
+                                {% else %}
+                                    <tr>
+                                        <td colspan="5" class="text-center text-muted py-4">
+                                            No hay corridas registradas aún.
+                                        </td>
+                                    </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- Modal de Vista Previa -->
+<div class="modal fade" id="previewModal" tabindex="-1" aria-labelledby="previewModalLabel" aria-hidden="true">
+    <div class="modal-dialog modal-xl">
+        <div class="modal-content">
+            <div class="modal-header bg-info text-white">
+                <h5 class="modal-title" id="previewModalLabel">👁️ Vista Previa de Datos</h5>
+                <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+            </div>
+            <div class="modal-body">
+                <div id="previewLoading" class="text-center py-4" style="display: none;">
+                    <div class="spinner-border text-info" role="status">
+                        <span class="visually-hidden">Cargando...</span>
+                    </div>
+                    <p class="mt-2">Cargando vista previa...</p>
+                </div>
+
+                <div id="previewContent" style="display: none;">
+                    <div class="row mb-3">
+                        <div class="col-md-6">
+                            <p><strong>Rango de Fechas:</strong> <span id="previewDateRange"></span></p>
+                            <p><strong id="previewFilterLabel">Filtro:</strong> <span id="previewFilterValues"></span></p>
+                        </div>
+                        <div class="col-md-6">
+                            <p><strong>Total de Filas:</strong> <span id="previewTotalRows" class="badge bg-primary"></span></p>
+                            <p><strong>Columnas a Transferir:</strong> <span id="previewColumnCount" class="badge bg-success"></span></p>
+                        </div>
+                    </div>
+
+                    <hr>
+
+                    <h6>📊 Muestra de Datos</h6>
+                    <div class="table-responsive preview-table">
+                        <table class="table table-sm table-hover mb-0" id="previewTable">
+                            <thead class="table-light">
+                            </thead>
+                            <tbody>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div id="previewError" class="alert alert-danger" style="display: none;">
+                    <strong>Error al cargar vista previa:</strong>
+                    <p id="previewErrorMessage"></p>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
+                <button type="button" class="btn btn-success" id="executeFromPreviewBtn">
+                    🚀 Ejecutar ETL
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+{% endblock %}
+
+{% block extra_js %}
+<script>
+const etlForm = document.getElementById('etlForm');
+const progressContainer = document.getElementById('progressContainer');
+const resultContainer = document.getElementById('resultContainer');
+const submitBtn = document.getElementById('submitBtn');
+let currentRunId = null;
+let pollingInterval = null;
+
+// Enviar formulario con AJAX
+etlForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+
+    const formData = new FormData(etlForm);
+    const startDate = formData.get('start_date');
+    const endDate = formData.get('end_date');
+    const batchSize = formData.get('batch_size');
+    const dryRun = formData.get('dry_run') ? 'true' : 'false';
+
+    actualizarComandoCLI(startDate, endDate, batchSize, dryRun === 'true');
+
+    submitBtn.disabled = true;
+    submitBtn.innerHTML = '⏳ Ejecutando...';
+    progressContainer.style.display = 'block';
+    resultContainer.style.display = 'none';
+
+    try {
+        const response = await fetch('{% url execute_url %}', {
+            method: 'POST',
+            headers: {
+                'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
+            },
+            body: formData,
+        });
+
+        const data = await response.json();
+
+        if (data.success) {
+            currentRunId = data.run_id;
+            iniciarPolling();
+        } else {
+            mostrarError('Error al ejecutar ETL', data.errors || data.message);
+            submitBtn.disabled = false;
+            submitBtn.innerHTML = '🚀 Ejecutar ETL';
+            progressContainer.style.display = 'none';
+        }
+    } catch (error) {
+        mostrarError('Error de conexión', error.message);
+        submitBtn.disabled = false;
+        submitBtn.innerHTML = '🚀 Ejecutar ETL';
+        progressContainer.style.display = 'none';
+    }
+});
+
+// Polling para actualizar estado
+function iniciarPolling() {
+    pollingInterval = setInterval(async () => {
+        try {
+            const response = await fetch(`{% url "incubacion:etl_status" %}?run_id=${currentRunId}`);
+            const data = await response.json();
+
+            if (data.status) {
+                actualizarProgreso(data);
+
+                if (!data.is_running) {
+                    clearInterval(pollingInterval);
+                    submitBtn.disabled = false;
+                    submitBtn.innerHTML = '🚀 Ejecutar ETL';
+                    mostrarResultado(data);
+                    // location.reload();  // Don't reload - show results instead
+                }
+            }
+        } catch (error) {
+            console.error('Error en polling:', error);
+        }
+    }, 2000);
+}
+
+// Actualizar barra de progreso
+function actualizarProgreso(data) {
+    const progressBar = document.getElementById('progressBar');
+    const statusMessage = document.getElementById('statusMessage');
+
+    progressBar.style.width = `${data.progress_percent}%`;
+    progressBar.setAttribute('aria-valuenow', data.progress_percent);
+    statusMessage.textContent = data.status_message || 'Procesando...';
+}
+
+// Mostrar resultado final
+function mostrarResultado(data) {
+    const resultAlert = document.getElementById('resultAlert');
+    const resultTitle = document.getElementById('resultTitle');
+    const resultMessage = document.getElementById('resultMessage');
+    const resultDetails = document.getElementById('resultDetails');
+
+    resultContainer.style.display = 'block';
+    progressContainer.style.display = 'none';
+
+    if (data.status === 'SUCCESS') {
+        resultAlert.className = 'alert alert-success';
+        resultTitle.innerHTML = '✅ ETL Completado Exitosamente';
+        resultMessage.innerHTML = `
+            <strong>Filas extraídas:</strong> ${data.source_rows.toLocaleString()}<br>
+            <strong>Filas borradas:</strong> ${data.deleted_rows.toLocaleString()}<br>
+            <strong>Filas insertadas:</strong> ${data.inserted_rows.toLocaleString()}
+        `;
+        
+        // Show summary if available
+        if (data.summary && data.summary.overall_stats) {
+            mostrarResumen(data.summary);
+        }
+    } else if (data.status === 'DRY_RUN') {
+        resultAlert.className = 'alert alert-warning';
+        resultTitle.innerHTML = '⚠️ Dry Run Completado';
+        resultMessage.innerHTML = `
+            <strong>Filas que se extraerían:</strong> ${data.source_rows.toLocaleString()}<br>
+            <em>No se han modificado datos en destino.</em>
+        `;
+    } else if (data.status === 'FAILED') {
+        resultAlert.className = 'alert alert-danger';
+        resultTitle.innerHTML = '❌ ETL Falló';
+        resultMessage.innerHTML = data.error_message || 'Error desconocido';
+    }
+
+    resultDetails.innerHTML = `Corrida ID: ${data.run_id}`;
+}
+
+// Mostrar error
+function mostrarError(title, message) {
+    resultAlert.className = 'alert alert-danger';
+    resultTitle.innerHTML = `❌ ${title}`;
+    resultMessage.innerHTML = typeof message === 'string' ? message : JSON.stringify(message);
+    resultContainer.style.display = 'block';
+}
+
+// Actualizar comando CLI
+function actualizarComandoCLI(startDate, endDate, batchSize, dryRun) {
+    const etlType = '{{ selected_etl }}';
+    const commandName = etlType === 'costo_prod_detalle' ? 'etl_costo_prod_detalle' : 'etl_incubacion';
+    const dryRunFlag = dryRun ? ' \\\n    --dry-run' : '';
+    const comando = `C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py ${commandName} \\
+    --start-date ${startDate} \\
+    --end-date ${endDate} \\
+    --batch-size ${batchSize}${dryRunFlag}`;
+    document.getElementById('cliCommand').innerHTML = comando.replace(/\n/g, '<br>').replace(/ /g, '&nbsp;');
+}
+
+// Copiar comando al portapapeles
+function copiarComando() {
+    const comando = document.getElementById('cliCommand').innerText;
+    navigator.clipboard.writeText(comando).then(() => {
+        alert('✅ Comando copiado al portapapeles');
+    }).catch(err => {
+        console.error('Error al copiar:', err);
+    });
+}
+
+// Vista Previa
+const previewBtn = document.getElementById('previewBtn');
+const previewModal = document.getElementById('previewModal');
+const previewLoading = document.getElementById('previewLoading');
+const previewContent = document.getElementById('previewContent');
+const previewError = document.getElementById('previewError');
+const executeFromPreviewBtn = document.getElementById('executeFromPreviewBtn');
+
+previewBtn.addEventListener('click', async () => {
+    const formData = new FormData(etlForm);
+    const params = new URLSearchParams(formData);
+
+    previewLoading.style.display = 'block';
+    previewContent.style.display = 'none';
+    previewError.style.display = 'none';
+
+    try {
+        const response = await fetch(`{% url preview_url %}?${params}`);
+        const data = await response.json();
+
+        if (data.success) {
+            mostrarPreview(data);
+            previewLoading.style.display = 'none';
+            previewContent.style.display = 'block';
+        } else {
+            mostrarErrorPreview(data.error || 'Error desconocido');
+        }
+    } catch (error) {
+        mostrarErrorPreview(error.message);
+    }
+});
+
+function mostrarPreview(data) {
+    // Información general
+    document.getElementById('previewDateRange').textContent = 
+        `${data.start_date} a ${data.end_date}`;
+    document.getElementById('previewFilterLabel').textContent = `${data.filter_label}:`;
+    document.getElementById('previewFilterValues').textContent =
+        data.filter_values.join(', ');
+    document.getElementById('previewTotalRows').textContent = 
+        data.total_rows.toLocaleString();
+    document.getElementById('previewColumnCount').textContent = 
+        data.columns.length;
+
+    // Tabla de datos
+    const table = document.getElementById('previewTable');
+    const thead = table.querySelector('thead');
+    const tbody = table.querySelector('tbody');
+
+    thead.innerHTML = '<tr>' + 
+        data.columns.map(col => `<th>${col}</th>`).join('') + 
+        '</tr>';
+
+    tbody.innerHTML = data.sample_data.map(row => 
+        '<tr>' + 
+        row.map(cell => {
+            let value = cell;
+            if (cell === null) {
+                return '<td><span class="text-muted">NULL</span></td>';
+            } else if (typeof cell === 'number') {
+                if (Number.isInteger(cell)) {
+                    value = cell.toLocaleString();
+                } else {
+                    value = cell.toFixed(6);
+                }
+            }
+            return `<td>${value}</td>`;
+        }).join('') + 
+        '</tr>'
+    ).join('');
+
+    if (data.sample_data.length < data.total_rows) {
+        tbody.innerHTML += `<tr class="table-info"><td colspan="${data.columns.length}" class="text-center text-muted">
+            ... y ${(data.total_rows - data.sample_data.length).toLocaleString()} filas más
+        </td></tr>`;
+    }
+}
+
+function mostrarErrorPreview(mensaje) {
+    previewLoading.style.display = 'none';
+    previewContent.style.display = 'none';
+    previewError.style.display = 'block';
+    document.getElementById('previewErrorMessage').textContent = mensaje;
+}
+
+// Ejecutar desde modal de preview
+executeFromPreviewBtn.addEventListener('click', () => {
+    const modal = bootstrap.Modal.getInstance(previewModal);
+    modal.hide();
+    etlForm.dispatchEvent(new Event('submit'));
+});
+
+// Mostrar resumen de datos
+function mostrarResumen(summary) {
+    const summaryContainer = document.getElementById('summaryContainer');
+    const summaryContent = document.getElementById('summaryContent');
+    
+    if (!summary.overall_stats || Object.keys(summary.overall_stats).length === 0) {
+        if (!summary.by_incubadora || summary.by_incubadora.length === 0) {
+            return; // No hay estadísticas
+        }
+    }
+
+    let html = '';
+    
+    // Estadísticas generales
+    html += '<h6 class="mt-3 mb-2">📈 Estadísticas Generales</h6>';
+    html += '<div class="table-responsive"><table class="table table-sm table-bordered">';
+    html += '<thead><tr><th>Columna</th><th>Suma</th><th>Promedio</th><th>Mín</th><th>Máx</th><th>Registros</th></tr></thead><tbody>';
+    
+    for (const [col, stats] of Object.entries(summary.overall_stats)) {
+        html += `<tr>
+            <td><strong>${col}</strong></td>
+            <td>${formatNumber(stats.sum)}</td>
+            <td>${formatNumber(stats.avg)}</td>
+            <td>${formatNumber(stats.min)}</td>
+            <td>${formatNumber(stats.max)}</td>
+            <td>${stats.count || 'N/A'}</td>
+        </tr>`;
+    }
+    
+    html += '</tbody></table></div>';
+    
+    // Resumen por incubadora
+    if (summary.by_incubadora && summary.by_incubadora.length > 0) {
+        html += '<h6 class="mt-4 mb-2">🏭 Resumen por Incubadora</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-striped">';
+        html += '<thead><tr><th>Incubadora</th><th>Filas</th></tr></thead><tbody>';
+
+        for (const item of summary.by_incubadora) {
+            html += `<tr>
+                <td><strong>${item.incubadora ?? 'N/A'}</strong></td>
+                <td>${(item.row_count || 0).toLocaleString()}</td>
+            </tr>`;
+        }
+
+        html += '</tbody></table></div>';
+    }
+
+    // Resumen por lotes
+    if (summary.batches && summary.batches.length > 0) {
+        html += '<h6 class="mt-4 mb-2">📦 Resumen por Lote</h6>';
+        html += '<div class="table-responsive"><table class="table table-sm table-striped">';
+        html += '<thead><tr><th>Lote</th><th>Filas</th>';
+        
+        // Agregar columnas dinámicamente
+        const firstBatch = summary.batches[0];
+        for (const col of Object.keys(summary.overall_stats)) {
+            html += `<th>${col}</th>`;
+        }
+        html += '</tr></thead><tbody>';
+        
+        for (const batch of summary.batches) {
+            html += `<tr>
+                <td><strong>Lote ${batch.batch_number}</strong></td>
+                <td>${batch.row_count}</td>`;
+            
+            for (const col of Object.keys(summary.overall_stats)) {
+                if (batch[col]) {
+                    html += `<td>${formatNumber(batch[col].sum)}</td>`;
+                } else {
+                    html += '<td>-</td>';
+                }
+            }
+            html += '</tr>';
+        }
+        
+        html += '</tbody></table></div>';
+    }
+    
+    summaryContent.innerHTML = html;
+    summaryContainer.style.display = 'block';
+}
+
+// Formatear números
+function formatNumber(value) {
+    if (value === null || value === undefined) return 'N/A';
+    if (typeof value === 'number') {
+        if (value % 1 === 0) {
+            return value.toLocaleString();
+        } else {
+            return value.toLocaleString('es-ES', {minimumFractionDigits: 2, maximumFractionDigits: 4});
+        }
+    }
+    return value;
+}
+</script>
+{% endblock %}
