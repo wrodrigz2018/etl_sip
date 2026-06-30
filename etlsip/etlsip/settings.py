@@ -237,6 +237,31 @@ ETL_PRESUPUESTO = {
 }
 
 
+ETL_PROTEIN_JOURNAL = {
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_PROT_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_PROT_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_PROT_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_PROT_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_PROT_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_PROT_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_PROT_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'DESTINATION_TABLE': os.getenv('ETL_PROT_DEST_TABLE', 'dbo.ProteinJournal_Staging'),
+    'DESTINATION_DATE_COLUMN': os.getenv('ETL_PROT_DEST_DATE_COLUMN', 'xDate'),
+    'DESTINATION_KEY_COLUMN': os.getenv('ETL_PROT_DEST_KEY_COLUMN', 'centro_costo'),
+    'EXCEL_PATH': os.getenv('ETL_PROT_EXCEL_PATH', str(BASE_DIR.parent / 'Incubesa - costo por lote.xlsx')),
+    'SHEET_DATA': os.getenv('ETL_PROT_SHEET_DATA', 'incubesa'),
+    'SHEET_MAPPING': os.getenv('ETL_PROT_SHEET_MAPPING', 'columnas'),
+}
+
+
 # Keycloak Configuration
 KEYCLOAK_CONFIG = {
     'SERVER_URL': os.getenv('KEYCLOAK_SERVER', 'https://cdkcpro.pronaca.com/auth/'),

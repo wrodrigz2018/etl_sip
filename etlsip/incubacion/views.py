@@ -17,6 +17,7 @@ from incubacion.auth import KeycloakAuthenticator
 from incubacion.forms import ETLExecutionForm
 from incubacion.management.commands.etl_costo_prod_detalle import Command as ETLCostoProdDetalleCommand
 from incubacion.management.commands.etl_incubacion import Command as ETLCommand
+from incubacion.management.commands.etl_protein_journal import Command as ETLProteinJournalCommand
 from incubacion.management.commands.etl_presupuesto_incubadoras import Command as ETLPresupuestoCommand
 from incubacion.models import ETLRunAudit
 
@@ -38,6 +39,12 @@ ETL_DEFINITIONS = {
         "label": "ETL Presupuesto Incubadoras",
         "command": "etl_presupuesto_incubadoras",
         "build_config": ETLPresupuestoCommand._build_config,
+        "filter_label": "Archivo Excel",
+    },
+    "protein_journal_staging": {
+        "label": "ETL ProteinJournal Staging",
+        "command": "etl_protein_journal",
+        "build_config": ETLProteinJournalCommand._build_config,
         "filter_label": "Archivo Excel",
     },
 }
@@ -171,6 +178,8 @@ def etl_dashboard(request):
         return redirect("incubacion:etl_dashboard_costo_prod_detalle")
     if selected_etl == "presupuesto_incubadoras":
         return redirect("incubacion:etl_dashboard_presupuesto")
+    if selected_etl == "protein_journal_staging":
+        return redirect("incubacion:etl_dashboard_protein_journal")
     return redirect("incubacion:etl_dashboard_incubacion")
 
 
@@ -183,6 +192,8 @@ def _render_dashboard(request, etl_type: str):
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="costo_prod_detalle")[:20]
     elif etl_type == "presupuesto_incubadoras":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="presupuesto_incubadoras")[:20]
+    elif etl_type == "protein_journal_staging":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="protein_journal_staging")[:20]
     else:
         runs = ETLRunAudit.objects.filter(
             Q(summary_json__etl_type="incubacion")
@@ -194,16 +205,21 @@ def _render_dashboard(request, etl_type: str):
         "incubacion": "incubacion:etl_execute_incubacion",
         "costo_prod_detalle": "incubacion:etl_execute_costo_prod_detalle",
         "presupuesto_incubadoras": "incubacion:etl_execute_presupuesto",
+        "protein_journal_staging": "incubacion:etl_execute_protein_journal",
     }
     preview_url_map = {
         "incubacion": "incubacion:etl_preview_incubacion",
         "costo_prod_detalle": "incubacion:etl_preview_costo_prod_detalle",
         "presupuesto_incubadoras": "incubacion:etl_preview_presupuesto",
+        "protein_journal_staging": "incubacion:etl_preview_protein_journal",
     }
 
     default_excel_path = ""
     if etl_type == "presupuesto_incubadoras":
         etl_settings = getattr(settings, "ETL_PRESUPUESTO", {})
+        default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
+    elif etl_type == "protein_journal_staging":
+        etl_settings = getattr(settings, "ETL_PROTEIN_JOURNAL", {})
         default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
 
     context = {
@@ -215,7 +231,7 @@ def _render_dashboard(request, etl_type: str):
         "etl_label": etl_definition["label"],
         "execute_url": execute_url_map.get(etl_type, "incubacion:etl_execute_incubacion"),
         "preview_url": preview_url_map.get(etl_type, "incubacion:etl_preview_incubacion"),
-        "show_excel_controls": etl_type == "presupuesto_incubadoras",
+        "show_excel_controls": etl_type in {"presupuesto_incubadoras", "protein_journal_staging"},
         "default_excel_path": default_excel_path,
     }
     return render(request, "incubacion/dashboard.html", context)
@@ -240,6 +256,13 @@ def etl_dashboard_costo_prod_detalle(request):
 def etl_dashboard_presupuesto(request):
     """Dedicated dashboard for ETL Presupuesto Incubadoras."""
     return _render_dashboard(request, "presupuesto_incubadoras")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_protein_journal(request):
+    """Dedicated dashboard for ETL ProteinJournal Staging."""
+    return _render_dashboard(request, "protein_journal_staging")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -275,11 +298,21 @@ def etl_execute_presupuesto(request):
     return _execute_etl_for_type(request, "presupuesto_incubadoras")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_protein_journal(request):
+    """Execute ETL ProteinJournal Staging explicitly."""
+    return _execute_etl_for_type(request, "protein_journal_staging")
+
+
 def _execute_etl_for_type(request, etl_type: str):
     """Execute ETL for a fixed etl_type."""
     form = ETLExecutionForm(request.POST)
 
-    if etl_type == "presupuesto_incubadoras":
+    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging"}
+
+    if etl_type in excel_etl_types:
         try:
             batch_size = int(request.POST.get("batch_size") or 1000)
         except (TypeError, ValueError):
@@ -313,12 +346,12 @@ def _execute_etl_for_type(request, etl_type: str):
     excel_path_override = ""
     start_date: date
     end_date: date
-    if etl_type == "presupuesto_incubadoras":
+    if etl_type in excel_etl_types:
         uploaded_excel = request.FILES.get("excel_file")
         if uploaded_excel is None:
             return JsonResponse({
                 "success": False,
-                "errors": {"excel_file": ["Debe seleccionar un archivo Excel para presupuesto."]},
+                "errors": {"excel_file": ["Debe seleccionar un archivo Excel."]},
             }, status=400)
 
         with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
@@ -330,15 +363,24 @@ def _execute_etl_for_type(request, etl_type: str):
     try:
         # Build ETL config and run
         resolved_excel_path: str | None = None
-        if etl_type == "presupuesto_incubadoras":
+        if etl_type in excel_etl_types:
             config, resolved_excel_path = etl_definition["build_config"](excel_path_override)
-            from incubacion.services import get_presupuesto_date_range
+            if etl_type == "presupuesto_incubadoras":
+                from incubacion.services import get_presupuesto_date_range
 
-            start_date, end_date = get_presupuesto_date_range(
-                excel_path=resolved_excel_path,
-                sheet_elemento_costo=config.sheet_elemento_costo,
-                sheet_presupuesto=config.sheet_presupuesto,
-            )
+                start_date, end_date = get_presupuesto_date_range(
+                    excel_path=resolved_excel_path,
+                    sheet_elemento_costo=config.sheet_elemento_costo,
+                    sheet_presupuesto=config.sheet_presupuesto,
+                )
+            else:
+                from incubacion.services import get_protein_journal_date_range
+
+                start_date, end_date = get_protein_journal_date_range(
+                    excel_path=resolved_excel_path,
+                    sheet_data=config.sheet_data,
+                    sheet_mapping=config.sheet_mapping,
+                )
         else:
             config = etl_definition["build_config"]()
 
@@ -420,6 +462,7 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         insert_rows,
         month_end,
         open_connection,
+        run_etl_protein_journal,
         run_etl_presupuesto,
     )
 
@@ -432,6 +475,30 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         audit.save(update_fields=["status_message", "progress_percent"])
 
         result = run_etl_presupuesto(
+            config=config,
+            excel_path=excel_path,
+            start_date=start_date,
+            end_date=end_date,
+            dry_run=dry_run,
+            batch_size=batch_size,
+        )
+
+        return {
+            "source_rows": int(result.get("source_rows", 0)),
+            "deleted_rows": int(result.get("deleted_rows", 0)),
+            "inserted_rows": int(result.get("inserted_rows", 0)),
+            "summary": result.get("summary", {}),
+        }
+
+    if etl_type == "protein_journal_staging":
+        if not excel_path:
+            raise ValueError("No Excel path provided for ProteinJournal ETL")
+
+        audit.status_message = "Leyendo archivo Excel..."
+        audit.progress_percent = 40
+        audit.save(update_fields=["status_message", "progress_percent"])
+
+        result = run_etl_protein_journal(
             config=config,
             excel_path=excel_path,
             start_date=start_date,
@@ -573,20 +640,33 @@ def etl_preview_presupuesto(request):
     return _etl_preview_for_type(request, "presupuesto_incubadoras")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_preview_protein_journal(request):
+    """Return ETL ProteinJournal Staging preview as JSON."""
+    return _etl_preview_for_type(request, "protein_journal_staging")
+
+
 def _etl_preview_for_type(request, etl_type: str):
     """Return data preview JSON for a fixed etl_type."""
     from incubacion.services import (
         extract_rows,
         extract_rows_costo_prod_detalle,
         get_destination_columns,
+        get_protein_journal_date_range,
         get_presupuesto_date_range,
         map_columns_and_rows,
         open_connection,
+        read_protein_journal_excel,
         read_presupuesto_excel,
+        transform_protein_journal_rows,
         transform_presupuesto_rows,
     )
 
-    if etl_type == "presupuesto_incubadoras":
+    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging"}
+
+    if etl_type in excel_etl_types:
         start_date = date.today()
         end_date = date.today()
     else:
@@ -602,12 +682,12 @@ def _etl_preview_for_type(request, etl_type: str):
         end_date = form.cleaned_data["end_date"]
 
     etl_definition = _get_etl_definition(etl_type)
-    limit_source = request.POST if etl_type == "presupuesto_incubadoras" else request.GET
+    limit_source = request.POST if etl_type in excel_etl_types else request.GET
     limit = int(limit_source.get("limit", 5))
 
     try:
         # Build ETL config
-        if etl_type == "presupuesto_incubadoras":
+        if etl_type in excel_etl_types:
             uploaded_excel = request.FILES.get("excel_file")
             temp_preview_path: str | None = None
             if uploaded_excel is None:
@@ -624,25 +704,46 @@ def _etl_preview_for_type(request, etl_type: str):
             excel_path_override = temp_preview_path
             config, resolved_excel_path = etl_definition["build_config"](excel_path_override)
             try:
-                start_date, end_date = get_presupuesto_date_range(
-                    excel_path=resolved_excel_path,
-                    sheet_elemento_costo=config.sheet_elemento_costo,
-                    sheet_presupuesto=config.sheet_presupuesto,
-                )
+                if etl_type == "presupuesto_incubadoras":
+                    start_date, end_date = get_presupuesto_date_range(
+                        excel_path=resolved_excel_path,
+                        sheet_elemento_costo=config.sheet_elemento_costo,
+                        sheet_presupuesto=config.sheet_presupuesto,
+                    )
 
-                elemento_map, headers, presupuesto_rows = read_presupuesto_excel(
-                    excel_path=resolved_excel_path,
-                    sheet_elemento_costo=config.sheet_elemento_costo,
-                    sheet_presupuesto=config.sheet_presupuesto,
-                )
-                mapped_columns, mapped_rows, _keys, metrics = transform_presupuesto_rows(
-                    elemento_map=elemento_map,
-                    presupuesto_headers=headers,
-                    presupuesto_rows=presupuesto_rows,
-                    start_date=start_date,
-                    end_date=end_date,
-                    load_timestamp=datetime.now(),
-                )
+                    elemento_map, headers, presupuesto_rows = read_presupuesto_excel(
+                        excel_path=resolved_excel_path,
+                        sheet_elemento_costo=config.sheet_elemento_costo,
+                        sheet_presupuesto=config.sheet_presupuesto,
+                    )
+                    mapped_columns, mapped_rows, _keys, metrics = transform_presupuesto_rows(
+                        elemento_map=elemento_map,
+                        presupuesto_headers=headers,
+                        presupuesto_rows=presupuesto_rows,
+                        start_date=start_date,
+                        end_date=end_date,
+                        load_timestamp=datetime.now(),
+                    )
+                else:
+                    start_date, end_date = get_protein_journal_date_range(
+                        excel_path=resolved_excel_path,
+                        sheet_data=config.sheet_data,
+                        sheet_mapping=config.sheet_mapping,
+                    )
+
+                    elemento_map, headers, data_rows = read_protein_journal_excel(
+                        excel_path=resolved_excel_path,
+                        sheet_data=config.sheet_data,
+                        sheet_mapping=config.sheet_mapping,
+                    )
+                    mapped_columns, mapped_rows, _keys, metrics = transform_protein_journal_rows(
+                        elemento_map=elemento_map,
+                        data_headers=headers,
+                        data_rows=data_rows,
+                        start_date=start_date,
+                        end_date=end_date,
+                        load_timestamp=datetime.now(),
+                    )
 
                 sample_rows = mapped_rows[:limit]
                 sample_data = [list(row) for row in sample_rows]

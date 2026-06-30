@@ -67,6 +67,16 @@ class PresupuestoETLConfig:
     sheet_presupuesto: str = "presupuesto"
 
 
+@dataclass(frozen=True)
+class ProteinJournalETLConfig:
+    destination: SqlServerConnectionConfig
+    destination_table: str
+    destination_date_column: str = "xDate"
+    destination_key_column: str = "centro_costo"
+    sheet_data: str = "incubesa"
+    sheet_mapping: str = "columnas"
+
+
 _IDENTIFIER_PART_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -782,6 +792,292 @@ def get_presupuesto_date_range(
     return min(dates), max(dates)
 
 
+def read_protein_journal_excel(
+    excel_path: str,
+    sheet_data: str,
+    sheet_mapping: str,
+) -> tuple[dict[str, dict[str, Any]], list[str], list[tuple[Any, ...]]]:
+    if not os.path.exists(excel_path):
+        raise ValueError(f"Excel file does not exist: {excel_path}")
+
+    workbook = load_workbook(excel_path, data_only=True)
+
+    if sheet_data not in workbook.sheetnames:
+        raise ValueError(f"Missing required sheet: {sheet_data}")
+    if sheet_mapping not in workbook.sheetnames:
+        raise ValueError(f"Missing required sheet: {sheet_mapping}")
+
+    data_sheet = workbook[sheet_data]
+    mapping_sheet = workbook[sheet_mapping]
+
+    mapping_rows = list(mapping_sheet.iter_rows(values_only=True))
+    if not mapping_rows:
+        raise ValueError("Mapping sheet is empty")
+
+    mapping_header = [str(value).strip() if value is not None else "" for value in mapping_rows[0]]
+    mapping_index = {
+        normalize_header_name(header): index
+        for index, header in enumerate(mapping_header)
+        if header
+    }
+
+    required_mapping_headers = {
+        "columna",
+        "grupo_costo",
+        "objeto_costo",
+        "sourcecode",
+        "systemstageno",
+    }
+    if not required_mapping_headers.issubset(set(mapping_index.keys())):
+        missing = sorted(required_mapping_headers - set(mapping_index.keys()))
+        raise ValueError(f"Mapping sheet is missing required columns: {missing}")
+
+    elemento_map: dict[str, dict[str, Any]] = {}
+    for row in mapping_rows[1:]:
+        if not row:
+            continue
+
+        col_idx = mapping_index["columna"]
+        column_name = row[col_idx] if col_idx < len(row) else None
+        if column_name in (None, ""):
+            continue
+
+        elemento_costo = str(column_name).strip()
+        key = normalize_header_name(elemento_costo)
+        if not key:
+            continue
+
+        grupo_idx = mapping_index["grupo_costo"]
+        objeto_idx = mapping_index["objeto_costo"]
+        source_idx = mapping_index["sourcecode"]
+        stage_idx = mapping_index["systemstageno"]
+
+        grupo_costo = row[grupo_idx] if grupo_idx < len(row) else None
+        objeto_costo = row[objeto_idx] if objeto_idx < len(row) else None
+        source_code = row[source_idx] if source_idx < len(row) else None
+        system_stage = row[stage_idx] if stage_idx < len(row) else None
+
+        if any(value in (None, "") for value in (grupo_costo, objeto_costo, source_code, system_stage)):
+            raise ValueError(
+                f"Incomplete mapping metadata for elemento '{elemento_costo}' in sheet {sheet_mapping}"
+            )
+
+        elemento_map[key] = {
+            "elemento_costo": elemento_costo,
+            "grupo_costo": str(grupo_costo).strip(),
+            "objeto_costo": str(objeto_costo).strip(),
+            "SourceCode": str(source_code).strip(),
+            "SystemStageNo": str(system_stage).strip(),
+        }
+
+    if not elemento_map:
+        raise ValueError("No valid mappings found in mapping sheet")
+
+    rows_iter = list(data_sheet.iter_rows(values_only=True))
+    header_index = -1
+    header_row: list[Any] = []
+    required_data_headers = {"fecha", "centro_costo", "granja_lote", "huevo incubable"}
+    for index, row in enumerate(rows_iter):
+        if not row:
+            continue
+        normalized = {normalize_header_name(value) for value in row if value not in (None, "")}
+        if required_data_headers.issubset(normalized):
+            header_index = index
+            header_row = list(row)
+            break
+
+    if header_index == -1:
+        raise ValueError(
+            "Could not locate incubesa header row with Fecha, centro_costo, granja_lote and Huevo Incubable"
+        )
+
+    data_rows: list[tuple[Any, ...]] = []
+    for row in rows_iter[header_index + 1 :]:
+        if row is None:
+            continue
+        if not any(value not in (None, "") for value in row):
+            continue
+
+        padded = list(row)
+        if len(padded) < len(header_row):
+            padded.extend([None] * (len(header_row) - len(padded)))
+        data_rows.append(tuple(padded[: len(header_row)]))
+
+    headers = [str(value).strip() if value is not None else "" for value in header_row]
+    return elemento_map, headers, data_rows
+
+
+def get_protein_journal_date_range(
+    excel_path: str,
+    sheet_data: str,
+    sheet_mapping: str,
+) -> tuple[date, date]:
+    _elemento_map, headers, rows = read_protein_journal_excel(
+        excel_path=excel_path,
+        sheet_data=sheet_data,
+        sheet_mapping=sheet_mapping,
+    )
+
+    header_index: dict[str, int] = {
+        normalize_header_name(header): index
+        for index, header in enumerate(headers)
+        if header not in (None, "")
+    }
+    fecha_idx = header_index.get("fecha")
+    if fecha_idx is None:
+        raise ValueError("Incubesa sheet must include Fecha")
+
+    dates: list[date] = []
+    for row in rows:
+        if fecha_idx >= len(row):
+            continue
+        value = row[fecha_idx]
+        if value in (None, ""):
+            continue
+        try:
+            dates.append(parse_excel_date(value))
+        except Exception:
+            continue
+
+    if not dates:
+        raise ValueError("No valid Fecha values found in incubesa sheet")
+
+    return min(dates), max(dates)
+
+
+def transform_protein_journal_rows(
+    elemento_map: dict[str, dict[str, Any]],
+    data_headers: list[str],
+    data_rows: list[tuple[Any, ...]],
+    start_date: date,
+    end_date: date,
+    load_timestamp: datetime,
+) -> tuple[list[str], list[tuple[Any, ...]], list[tuple[date, Any]], dict[str, Any]]:
+    header_index: dict[str, int] = {
+        normalize_header_name(header): index
+        for index, header in enumerate(data_headers)
+        if header not in (None, "")
+    }
+
+    fecha_idx = header_index.get("fecha")
+    centro_idx = header_index.get("centro_costo")
+    granja_idx = header_index.get("granja_lote")
+    hi_idx = header_index.get(normalize_header_name("Huevo Incubable"))
+    if fecha_idx is None or centro_idx is None or granja_idx is None or hi_idx is None:
+        raise ValueError(
+            "Incubesa sheet must include Fecha, centro_costo, granja_lote and Huevo Incubable"
+        )
+
+    generated_rows: list[tuple[Any, ...]] = []
+    delete_keys: set[tuple[date, Any]] = set()
+    mapped_columns: set[str] = set()
+    ignored_columns: set[str] = set()
+    invalid_numeric_values = 0
+    skipped_out_of_range = 0
+    source_rows = 0
+
+    base_header_positions = {
+        fecha_idx,
+        centro_idx,
+        granja_idx,
+        hi_idx,
+    }
+
+    for row in data_rows:
+        try:
+            xdate = parse_excel_date(row[fecha_idx])
+        except Exception:
+            continue
+
+        if xdate < start_date or xdate > end_date:
+            skipped_out_of_range += 1
+            continue
+
+        source_rows += 1
+        centro_costo = row[centro_idx]
+        if centro_costo in (None, ""):
+            continue
+
+        granja_lote = row[granja_idx] if granja_idx < len(row) else None
+
+        try:
+            unidades_relativas = parse_excel_int(
+                row[hi_idx] if hi_idx < len(row) else None,
+                "Huevo Incubable",
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid Huevo Incubable value for centro_costo={centro_costo}, fecha={xdate}: {exc}"
+            ) from exc
+
+        for index, header in enumerate(data_headers):
+            if index in base_header_positions:
+                continue
+            if not header:
+                continue
+
+            normalized_header = normalize_header_name(header)
+            elemento_meta = elemento_map.get(normalized_header)
+            if elemento_meta is None:
+                ignored_columns.add(header)
+                continue
+
+            value = row[index] if index < len(row) else None
+            if value in (None, ""):
+                continue
+
+            try:
+                valor_relativo = Decimal(str(value))
+            except Exception:
+                invalid_numeric_values += 1
+                continue
+
+            mapped_columns.add(header)
+            delete_keys.add((xdate, centro_costo))
+            generated_rows.append(
+                (
+                    xdate,
+                    month_end(xdate),
+                    centro_costo,
+                    granja_lote,
+                    elemento_meta["elemento_costo"],
+                    elemento_meta["grupo_costo"],
+                    valor_relativo,
+                    unidades_relativas,
+                    elemento_meta["objeto_costo"],
+                    elemento_meta["SourceCode"],
+                    elemento_meta["SystemStageNo"],
+                    load_timestamp,
+                )
+            )
+
+    metrics = {
+        "source_rows": source_rows,
+        "transformed_rows": len(generated_rows),
+        "mapped_columns": sorted(mapped_columns),
+        "ignored_columns": sorted(ignored_columns),
+        "invalid_numeric_values": invalid_numeric_values,
+        "skipped_out_of_range": skipped_out_of_range,
+        "delete_key_count": len(delete_keys),
+    }
+
+    destination_columns = [
+        "xDate",
+        "fecha_fin_mes",
+        "centro_costo",
+        "granja_lote",
+        "elemento_costo",
+        "grupo_costo",
+        "valor_relativo",
+        "unidades_relativas",
+        "objeto_costo",
+        "SourceCode",
+        "SystemStageNo",
+        "fecha_carga",
+    ]
+    return destination_columns, generated_rows, sorted(delete_keys), metrics
+
+
 def transform_presupuesto_rows(
     elemento_map: dict[str, int],
     presupuesto_headers: list[str],
@@ -969,6 +1265,77 @@ def run_etl_presupuesto(
                 "excel_path": excel_path,
                 "sheet_elemento_costo": config.sheet_elemento_costo,
                 "sheet_presupuesto": config.sheet_presupuesto,
+                "load_timestamp": load_timestamp.isoformat(),
+                "mapped_elemento_count": len(elemento_map),
+            },
+        }
+
+        if dry_run:
+            return result
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_by_keys(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            destination_date_column=config.destination_date_column,
+            destination_key_column=config.destination_key_column,
+            keys=keys,
+        )
+        inserted_rows = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+
+        result["deleted_rows"] = deleted_rows
+        result["inserted_rows"] = inserted_rows
+        return result
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        destination_conn.close()
+
+
+def run_etl_protein_journal(
+    config: ProteinJournalETLConfig,
+    excel_path: str,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, Any]:
+    destination_conn = open_connection(config.destination)
+    load_timestamp = datetime.now()
+
+    try:
+        elemento_map, headers, data_rows = read_protein_journal_excel(
+            excel_path=excel_path,
+            sheet_data=config.sheet_data,
+            sheet_mapping=config.sheet_mapping,
+        )
+
+        columns, rows, keys, metrics = transform_protein_journal_rows(
+            elemento_map=elemento_map,
+            data_headers=headers,
+            data_rows=data_rows,
+            start_date=start_date,
+            end_date=end_date,
+            load_timestamp=load_timestamp,
+        )
+
+        result: dict[str, Any] = {
+            "source_rows": metrics["source_rows"],
+            "deleted_rows": 0,
+            "inserted_rows": 0,
+            "summary": {
+                **metrics,
+                "excel_path": excel_path,
+                "sheet_data": config.sheet_data,
+                "sheet_mapping": config.sheet_mapping,
                 "load_timestamp": load_timestamp.isoformat(),
                 "mapped_elemento_count": len(elemento_map),
             },

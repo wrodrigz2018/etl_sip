@@ -142,7 +142,7 @@
 
                         {% if show_excel_controls %}
                         <div class="mb-3">
-                            <label for="excelFile" class="form-label">Archivo Excel de Presupuesto</label>
+                            <label for="excelFile" class="form-label">Archivo Excel</label>
                             <input
                                 type="file"
                                 class="form-control"
@@ -227,8 +227,8 @@
                 </div>
                 <div class="card-body">
                     <div class="command-line" id="cliCommand">
-                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% elif selected_etl == 'presupuesto_incubadoras' %}etl_presupuesto_incubadoras{% else %}etl_incubacion{% endif %} \<br>
-                        {% if selected_etl != 'presupuesto_incubadoras' %}
+                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% elif selected_etl == 'presupuesto_incubadoras' %}etl_presupuesto_incubadoras{% elif selected_etl == 'protein_journal_staging' %}etl_protein_journal{% else %}etl_incubacion{% endif %} \<br>
+                        {% if not show_excel_controls %}
                         &nbsp;&nbsp;--start-date YYYY-MM-DD \<br>
                         &nbsp;&nbsp;--end-date YYYY-MM-DD \<br>
                         {% endif %}
@@ -269,6 +269,8 @@
                                                     CostoProdDetalle
                                                 {% elif run.summary_json.etl_type == 'presupuesto_incubadoras' %}
                                                     PresupuestoIncubadoras
+                                                {% elif run.summary_json.etl_type == 'protein_journal_staging' %}
+                                                    ProteinJournalStaging
                                                 {% else %}
                                                     Incubacion
                                                 {% endif %}
@@ -398,10 +400,10 @@ etlForm.addEventListener('submit', async (e) => {
     const batchSize = formData.get('batch_size');
     const dryRun = formData.get('dry_run') ? 'true' : 'false';
 
-    if (etlType === 'presupuesto_incubadoras') {
+    if (etlType === 'presupuesto_incubadoras' || etlType === 'protein_journal_staging') {
         const excelFile = formData.get('excel_file');
         if (!excelFile || !excelFile.name) {
-            mostrarError('Validación', 'Debe seleccionar un archivo Excel para importar presupuesto.');
+            mostrarError('Validación', 'Debe seleccionar un archivo Excel para importar.');
             return;
         }
     }
@@ -530,10 +532,12 @@ function actualizarComandoCLI(startDate, endDate, batchSize, dryRun) {
         commandName = 'etl_costo_prod_detalle';
     } else if (etlType === 'presupuesto_incubadoras') {
         commandName = 'etl_presupuesto_incubadoras';
+    } else if (etlType === 'protein_journal_staging') {
+        commandName = 'etl_protein_journal';
     }
 
     const dryRunFlag = dryRun ? ' \\\n    --dry-run' : '';
-    const comando = etlType === 'presupuesto_incubadoras'
+    const comando = (etlType === 'presupuesto_incubadoras' || etlType === 'protein_journal_staging')
         ? `C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py ${commandName} \\
     --excel-path <archivo.xlsx> \\
     --batch-size ${batchSize}${dryRunFlag}`
@@ -572,7 +576,7 @@ previewBtn.addEventListener('click', async () => {
 
     try {
         let response;
-        if (etlType === 'presupuesto_incubadoras') {
+        if (etlType === 'presupuesto_incubadoras' || etlType === 'protein_journal_staging') {
             const excelFile = formData.get('excel_file');
             if (!excelFile || !excelFile.name) {
                 mostrarErrorPreview('Debe seleccionar un archivo Excel para la vista previa.');
