@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
@@ -7,6 +8,7 @@ from datetime import date, datetime
 from typing import Any
 import calendar
 
+from openpyxl import load_workbook
 import pyodbc
 
 
@@ -53,6 +55,16 @@ class CostoProdDetalleETLConfig:
     hatcheries: tuple[str, ...] = HATCHERIES_DEFAULT
     species_type: int = 1
     farm_type: int = 2
+
+
+@dataclass(frozen=True)
+class PresupuestoETLConfig:
+    destination: SqlServerConnectionConfig
+    destination_table: str
+    destination_date_column: str = "fecha_fin_mes"
+    destination_key_column: str = "centro_costo"
+    sheet_elemento_costo: str = "elemento_costo"
+    sheet_presupuesto: str = "presupuesto"
 
 
 _IDENTIFIER_PART_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -623,6 +635,372 @@ def run_etl_costo_prod_detalle(
         raise
     finally:
         source_conn.close()
+        destination_conn.close()
+
+
+def parse_excel_date(value: Any) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            raise ValueError("Empty date value")
+        try:
+            return datetime.fromisoformat(text).date()
+        except ValueError:
+            return datetime.strptime(text, "%Y-%m-%d").date()
+
+    raise ValueError(f"Unsupported date value type: {type(value).__name__}")
+
+
+def parse_excel_int(value: Any, field_name: str) -> int:
+    if value in (None, ""):
+        raise ValueError(f"Missing required value for {field_name}")
+
+    try:
+        decimal_value = Decimal(str(value))
+    except Exception as exc:
+        raise ValueError(f"Invalid numeric value for {field_name}: {value}") from exc
+
+    return int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def normalize_header_name(value: Any) -> str:
+    return re.sub(r"\s+", " ", str(value).strip()).casefold()
+
+
+def read_presupuesto_excel(
+    excel_path: str,
+    sheet_elemento_costo: str,
+    sheet_presupuesto: str,
+) -> tuple[dict[str, int], list[str], list[tuple[Any, ...]]]:
+    if not os.path.exists(excel_path):
+        raise ValueError(f"Excel file does not exist: {excel_path}")
+
+    workbook = load_workbook(excel_path, data_only=True)
+
+    if sheet_elemento_costo not in workbook.sheetnames:
+        raise ValueError(f"Missing required sheet: {sheet_elemento_costo}")
+    if sheet_presupuesto not in workbook.sheetnames:
+        raise ValueError(f"Missing required sheet: {sheet_presupuesto}")
+
+    elemento_sheet = workbook[sheet_elemento_costo]
+    presupuesto_sheet = workbook[sheet_presupuesto]
+
+    elemento_map: dict[str, int] = {}
+    for row in elemento_sheet.iter_rows(min_row=2, values_only=True):
+        if not row or len(row) < 3:
+            continue
+
+        column_name = row[1]
+        elemento_id = row[2]
+        if column_name in (None, "") or elemento_id in (None, ""):
+            continue
+
+        key = normalize_header_name(column_name)
+        parsed_id = int(elemento_id)
+        existing = elemento_map.get(key)
+        if existing is not None and existing != parsed_id:
+            raise ValueError(
+                f"Duplicate mapping for column '{column_name}' with different ids: "
+                f"{existing} and {parsed_id}"
+            )
+        elemento_map[key] = parsed_id
+
+    if not elemento_map:
+        raise ValueError("No valid mappings found in elemento_costo sheet")
+
+    rows_iter = list(presupuesto_sheet.iter_rows(values_only=True))
+    header_index = -1
+    header_row: list[Any] = []
+    required_headers = {"fecha", "centro_costo"}
+    for index, row in enumerate(rows_iter):
+        if not row:
+            continue
+        normalized = {normalize_header_name(value) for value in row if value not in (None, "")}
+        if required_headers.issubset(normalized):
+            header_index = index
+            header_row = list(row)
+            break
+
+    if header_index == -1:
+        raise ValueError("Could not locate presupuesto header row with Fecha and centro_costo")
+
+    data_rows: list[tuple[Any, ...]] = []
+    for row in rows_iter[header_index + 1 :]:
+        if row is None:
+            continue
+        if not any(value not in (None, "") for value in row):
+            continue
+
+        padded = list(row)
+        if len(padded) < len(header_row):
+            padded.extend([None] * (len(header_row) - len(padded)))
+        data_rows.append(tuple(padded[: len(header_row)]))
+
+    headers = [str(value).strip() if value is not None else "" for value in header_row]
+    return elemento_map, headers, data_rows
+
+
+def get_presupuesto_date_range(
+    excel_path: str,
+    sheet_elemento_costo: str,
+    sheet_presupuesto: str,
+) -> tuple[date, date]:
+    _elemento_map, headers, rows = read_presupuesto_excel(
+        excel_path=excel_path,
+        sheet_elemento_costo=sheet_elemento_costo,
+        sheet_presupuesto=sheet_presupuesto,
+    )
+
+    header_index: dict[str, int] = {
+        normalize_header_name(header): index
+        for index, header in enumerate(headers)
+        if header not in (None, "")
+    }
+    fecha_idx = header_index.get("fecha")
+    if fecha_idx is None:
+        raise ValueError("Presupuesto sheet must include Fecha")
+
+    dates: list[date] = []
+    for row in rows:
+        if fecha_idx >= len(row):
+            continue
+        value = row[fecha_idx]
+        if value in (None, ""):
+            continue
+        try:
+            dates.append(parse_excel_date(value))
+        except Exception:
+            continue
+
+    if not dates:
+        raise ValueError("No valid Fecha values found in presupuesto sheet")
+
+    return min(dates), max(dates)
+
+
+def transform_presupuesto_rows(
+    elemento_map: dict[str, int],
+    presupuesto_headers: list[str],
+    presupuesto_rows: list[tuple[Any, ...]],
+    start_date: date,
+    end_date: date,
+    load_timestamp: datetime,
+) -> tuple[list[str], list[tuple[Any, ...]], list[tuple[date, Any]], dict[str, Any]]:
+    header_index: dict[str, int] = {
+        normalize_header_name(header): index
+        for index, header in enumerate(presupuesto_headers)
+        if header not in (None, "")
+    }
+
+    fecha_idx = header_index.get("fecha")
+    centro_idx = header_index.get("centro_costo")
+    hi_idx = header_index.get(normalize_header_name("Huevo Incubable"))
+    pollitos_idx = header_index.get(normalize_header_name("Pollito aprovechable"))
+    if fecha_idx is None or centro_idx is None:
+        raise ValueError("Presupuesto sheet must include Fecha and centro_costo")
+    if hi_idx is None or pollitos_idx is None:
+        raise ValueError(
+            "Presupuesto sheet must include Huevo Incubable and Pollito aprovechable"
+        )
+
+    generated_rows: list[tuple[Any, ...]] = []
+    delete_keys: set[tuple[date, Any]] = set()
+    mapped_columns: set[str] = set()
+    ignored_columns: set[str] = set()
+    invalid_numeric_values = 0
+    skipped_out_of_range = 0
+    source_rows = 0
+
+    for row in presupuesto_rows:
+        try:
+            fecha_value = parse_excel_date(row[fecha_idx])
+        except Exception:
+            continue
+
+        if fecha_value < start_date or fecha_value > end_date:
+            skipped_out_of_range += 1
+            continue
+
+        source_rows += 1
+        centro_costo = row[centro_idx]
+        if centro_costo in (None, ""):
+            continue
+
+        try:
+            hi_cargados = parse_excel_int(
+                row[hi_idx] if hi_idx < len(row) else None,
+                "Huevo Incubable",
+            )
+            pollitos_nacidos = parse_excel_int(
+                row[pollitos_idx] if pollitos_idx < len(row) else None,
+                "Pollito aprovechable",
+            )
+        except ValueError as exc:
+            raise ValueError(
+                f"Invalid required values for centro_costo={centro_costo}, fecha={fecha_value}: {exc}"
+            ) from exc
+
+        for index, header in enumerate(presupuesto_headers):
+            if index in (fecha_idx, centro_idx, hi_idx, pollitos_idx):
+                continue
+            if not header:
+                continue
+
+            normalized_header = normalize_header_name(header)
+            elemento_costo = elemento_map.get(normalized_header)
+            if elemento_costo is None:
+                ignored_columns.add(header)
+                continue
+
+            value = row[index] if index < len(row) else None
+            if value in (None, ""):
+                continue
+
+            try:
+                valor_relativo = Decimal(str(value))
+            except Exception:
+                invalid_numeric_values += 1
+                continue
+
+            mapped_columns.add(header)
+            delete_keys.add((fecha_value, centro_costo))
+            generated_rows.append(
+                (
+                    fecha_value,
+                    centro_costo,
+                    str(elemento_costo),
+                    valor_relativo,
+                    hi_cargados,
+                    pollitos_nacidos,
+                    load_timestamp,
+                )
+            )
+
+    metrics = {
+        "source_rows": source_rows,
+        "transformed_rows": len(generated_rows),
+        "mapped_columns": sorted(mapped_columns),
+        "ignored_columns": sorted(ignored_columns),
+        "invalid_numeric_values": invalid_numeric_values,
+        "skipped_out_of_range": skipped_out_of_range,
+        "delete_key_count": len(delete_keys),
+    }
+
+    destination_columns = [
+        "fecha_fin_mes",
+        "centro_costo",
+        "elemento_costo",
+        "valor_relativo",
+        "hi_cargados",
+        "pollitos_nacidos",
+        "fecha_carga",
+    ]
+    return destination_columns, generated_rows, sorted(delete_keys), metrics
+
+
+def delete_destination_by_keys(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    destination_date_column: str,
+    destination_key_column: str,
+    keys: list[tuple[date, Any]],
+) -> int:
+    if not keys:
+        return 0
+
+    destination_table_safe = quote_identifier(destination_table)
+    destination_date_column_safe = quote_identifier(destination_date_column)
+    destination_key_column_safe = quote_identifier(destination_key_column)
+
+    delete_sql = f"""
+        DELETE FROM {destination_table_safe}
+        WHERE {destination_date_column_safe} = ?
+          AND {destination_key_column_safe} = ?
+    """
+
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    for key in keys:
+        cursor.execute(delete_sql, key)
+        if cursor.rowcount and cursor.rowcount > 0:
+            deleted_rows += cursor.rowcount
+
+    cursor.close()
+    return deleted_rows
+
+
+def run_etl_presupuesto(
+    config: PresupuestoETLConfig,
+    excel_path: str,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, Any]:
+    destination_conn = open_connection(config.destination)
+    load_timestamp = datetime.now()
+
+    try:
+        elemento_map, headers, presupuesto_rows = read_presupuesto_excel(
+            excel_path=excel_path,
+            sheet_elemento_costo=config.sheet_elemento_costo,
+            sheet_presupuesto=config.sheet_presupuesto,
+        )
+
+        columns, rows, keys, metrics = transform_presupuesto_rows(
+            elemento_map=elemento_map,
+            presupuesto_headers=headers,
+            presupuesto_rows=presupuesto_rows,
+            start_date=start_date,
+            end_date=end_date,
+            load_timestamp=load_timestamp,
+        )
+
+        result: dict[str, Any] = {
+            "source_rows": metrics["source_rows"],
+            "deleted_rows": 0,
+            "inserted_rows": 0,
+            "summary": {
+                **metrics,
+                "excel_path": excel_path,
+                "sheet_elemento_costo": config.sheet_elemento_costo,
+                "sheet_presupuesto": config.sheet_presupuesto,
+                "load_timestamp": load_timestamp.isoformat(),
+                "mapped_elemento_count": len(elemento_map),
+            },
+        }
+
+        if dry_run:
+            return result
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_by_keys(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            destination_date_column=config.destination_date_column,
+            destination_key_column=config.destination_key_column,
+            keys=keys,
+        )
+        inserted_rows = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+
+        result["deleted_rows"] = deleted_rows
+        result["inserted_rows"] = inserted_rows
+        return result
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
         destination_conn.close()
 
 

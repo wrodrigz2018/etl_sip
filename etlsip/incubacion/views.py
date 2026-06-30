@@ -1,6 +1,7 @@
 from __future__ import annotations
 
-import json
+import os
+import tempfile
 from datetime import date, datetime
 
 from django.conf import settings
@@ -16,6 +17,7 @@ from incubacion.auth import KeycloakAuthenticator
 from incubacion.forms import ETLExecutionForm
 from incubacion.management.commands.etl_costo_prod_detalle import Command as ETLCostoProdDetalleCommand
 from incubacion.management.commands.etl_incubacion import Command as ETLCommand
+from incubacion.management.commands.etl_presupuesto_incubadoras import Command as ETLPresupuestoCommand
 from incubacion.models import ETLRunAudit
 
 
@@ -31,6 +33,12 @@ ETL_DEFINITIONS = {
         "command": "etl_costo_prod_detalle",
         "build_config": ETLCostoProdDetalleCommand._build_config,
         "filter_label": "Incubadoras",
+    },
+    "presupuesto_incubadoras": {
+        "label": "ETL Presupuesto Incubadoras",
+        "command": "etl_presupuesto_incubadoras",
+        "build_config": ETLPresupuestoCommand._build_config,
+        "filter_label": "Archivo Excel",
     },
 }
 
@@ -161,6 +169,8 @@ def etl_dashboard(request):
     selected_etl = _get_selected_etl(request)
     if selected_etl == "costo_prod_detalle":
         return redirect("incubacion:etl_dashboard_costo_prod_detalle")
+    if selected_etl == "presupuesto_incubadoras":
+        return redirect("incubacion:etl_dashboard_presupuesto")
     return redirect("incubacion:etl_dashboard_incubacion")
 
 
@@ -171,12 +181,30 @@ def _render_dashboard(request, etl_type: str):
     form = ETLExecutionForm()
     if etl_type == "costo_prod_detalle":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="costo_prod_detalle")[:20]
+    elif etl_type == "presupuesto_incubadoras":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="presupuesto_incubadoras")[:20]
     else:
         runs = ETLRunAudit.objects.filter(
             Q(summary_json__etl_type="incubacion")
             | Q(summary_json__isnull=True)
         )[:20]
     etl_definition = _get_etl_definition(etl_type)
+
+    execute_url_map = {
+        "incubacion": "incubacion:etl_execute_incubacion",
+        "costo_prod_detalle": "incubacion:etl_execute_costo_prod_detalle",
+        "presupuesto_incubadoras": "incubacion:etl_execute_presupuesto",
+    }
+    preview_url_map = {
+        "incubacion": "incubacion:etl_preview_incubacion",
+        "costo_prod_detalle": "incubacion:etl_preview_costo_prod_detalle",
+        "presupuesto_incubadoras": "incubacion:etl_preview_presupuesto",
+    }
+
+    default_excel_path = ""
+    if etl_type == "presupuesto_incubadoras":
+        etl_settings = getattr(settings, "ETL_PRESUPUESTO", {})
+        default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
 
     context = {
         "form": form,
@@ -185,16 +213,10 @@ def _render_dashboard(request, etl_type: str):
         "etl_options": ETL_DEFINITIONS,
         "selected_etl": etl_type,
         "etl_label": etl_definition["label"],
-        "execute_url": (
-            "incubacion:etl_execute_costo_prod_detalle"
-            if etl_type == "costo_prod_detalle"
-            else "incubacion:etl_execute_incubacion"
-        ),
-        "preview_url": (
-            "incubacion:etl_preview_costo_prod_detalle"
-            if etl_type == "costo_prod_detalle"
-            else "incubacion:etl_preview_incubacion"
-        ),
+        "execute_url": execute_url_map.get(etl_type, "incubacion:etl_execute_incubacion"),
+        "preview_url": preview_url_map.get(etl_type, "incubacion:etl_preview_incubacion"),
+        "show_excel_controls": etl_type == "presupuesto_incubadoras",
+        "default_excel_path": default_excel_path,
     }
     return render(request, "incubacion/dashboard.html", context)
 
@@ -211,6 +233,13 @@ def etl_dashboard_incubacion(request):
 def etl_dashboard_costo_prod_detalle(request):
     """Dedicated dashboard for ETL CostoProdDetalle."""
     return _render_dashboard(request, "costo_prod_detalle")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_presupuesto(request):
+    """Dedicated dashboard for ETL Presupuesto Incubadoras."""
+    return _render_dashboard(request, "presupuesto_incubadoras")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -238,38 +267,94 @@ def etl_execute_costo_prod_detalle(request):
     return _execute_etl_for_type(request, "costo_prod_detalle")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_presupuesto(request):
+    """Execute ETL Presupuesto Incubadoras explicitly."""
+    return _execute_etl_for_type(request, "presupuesto_incubadoras")
+
+
 def _execute_etl_for_type(request, etl_type: str):
     """Execute ETL for a fixed etl_type."""
     form = ETLExecutionForm(request.POST)
 
-    if not form.is_valid():
-        return JsonResponse({
-            "success": False,
-            "errors": form.errors,
-        }, status=400)
+    if etl_type == "presupuesto_incubadoras":
+        try:
+            batch_size = int(request.POST.get("batch_size") or 1000)
+        except (TypeError, ValueError):
+            return JsonResponse({
+                "success": False,
+                "errors": {"batch_size": ["Tamaño de lote inválido."]},
+            }, status=400)
 
-    start_date = form.cleaned_data["start_date"]
-    end_date = form.cleaned_data["end_date"]
-    batch_size = form.cleaned_data["batch_size"]
-    dry_run = form.cleaned_data["dry_run"]
+        if batch_size <= 0:
+            return JsonResponse({
+                "success": False,
+                "errors": {"batch_size": ["El tamaño de lote debe ser mayor a cero."]},
+            }, status=400)
+
+        dry_run = str(request.POST.get("dry_run", "")).lower() in {"on", "true", "1", "yes"}
+    else:
+        if not form.is_valid():
+            return JsonResponse({
+                "success": False,
+                "errors": form.errors,
+            }, status=400)
+
+        start_date = form.cleaned_data["start_date"]
+        end_date = form.cleaned_data["end_date"]
+        batch_size = form.cleaned_data["batch_size"]
+        dry_run = form.cleaned_data["dry_run"]
+
     etl_definition = _get_etl_definition(etl_type)
+    temp_file_path: str | None = None
 
-    # Create audit record
-    audit = ETLRunAudit(
-        status=ETLRunAudit.STATUS_RUNNING,
-        start_date=start_date,
-        end_date=end_date,
-        batch_size=batch_size,
-        dry_run=dry_run,
-        is_running=True,
-        status_message="Iniciando...",
-        summary_json={"etl_type": etl_type},
-    )
-    audit.save()
+    excel_path_override = ""
+    start_date: date
+    end_date: date
+    if etl_type == "presupuesto_incubadoras":
+        uploaded_excel = request.FILES.get("excel_file")
+        if uploaded_excel is None:
+            return JsonResponse({
+                "success": False,
+                "errors": {"excel_file": ["Debe seleccionar un archivo Excel para presupuesto."]},
+            }, status=400)
+
+        with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
+            for chunk in uploaded_excel.chunks():
+                temp_file.write(chunk)
+            temp_file_path = temp_file.name
+        excel_path_override = temp_file_path
 
     try:
         # Build ETL config and run
-        config = etl_definition["build_config"]()
+        resolved_excel_path: str | None = None
+        if etl_type == "presupuesto_incubadoras":
+            config, resolved_excel_path = etl_definition["build_config"](excel_path_override)
+            from incubacion.services import get_presupuesto_date_range
+
+            start_date, end_date = get_presupuesto_date_range(
+                excel_path=resolved_excel_path,
+                sheet_elemento_costo=config.sheet_elemento_costo,
+                sheet_presupuesto=config.sheet_presupuesto,
+            )
+        else:
+            config = etl_definition["build_config"]()
+
+        # Create audit record once the date range is known.
+        audit = ETLRunAudit(
+            status=ETLRunAudit.STATUS_RUNNING,
+            start_date=start_date,
+            end_date=end_date,
+            batch_size=batch_size,
+            dry_run=dry_run,
+            is_running=True,
+            status_message="Iniciando...",
+            summary_json={"etl_type": etl_type},
+        )
+        audit.save()
+
         audit.status_message = "Extrayendo datos..."
         audit.progress_percent = 25
         audit.save(update_fields=["status_message", "progress_percent"])
@@ -277,6 +362,7 @@ def _execute_etl_for_type(request, etl_type: str):
         result = _run_etl_with_progress(
             etl_type=etl_type,
             config=config,
+            excel_path=resolved_excel_path,
             start_date=start_date,
             end_date=end_date,
             dry_run=dry_run,
@@ -307,21 +393,25 @@ def _execute_etl_for_type(request, etl_type: str):
         })
 
     except Exception as exc:
-        audit.status = ETLRunAudit.STATUS_FAILED
-        audit.error_message = str(exc)
-        audit.status_message = f"Error: {str(exc)[:100]}"
-        audit.is_running = False
-        audit.ended_at = datetime.now()
-        audit.save()
+        if "audit" in locals():
+            audit.status = ETLRunAudit.STATUS_FAILED
+            audit.error_message = str(exc)
+            audit.status_message = f"Error: {str(exc)[:100]}"
+            audit.is_running = False
+            audit.ended_at = datetime.now()
+            audit.save()
 
         return JsonResponse({
             "success": False,
-            "run_id": audit.id,
+            "run_id": audit.id if "audit" in locals() else None,
             "message": f"{etl_definition['label']} fallo: {str(exc)}",
         }, status=500)
+    finally:
+        if temp_file_path and os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
 
 
-def _run_etl_with_progress(etl_type, config, start_date, end_date, dry_run, batch_size, audit):
+def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, dry_run, batch_size, audit):
     """Run ETL and update audit progress."""
     from incubacion.services import (
         delete_destination_range,
@@ -330,7 +420,32 @@ def _run_etl_with_progress(etl_type, config, start_date, end_date, dry_run, batc
         insert_rows,
         month_end,
         open_connection,
+        run_etl_presupuesto,
     )
+
+    if etl_type == "presupuesto_incubadoras":
+        if not excel_path:
+            raise ValueError("No Excel path provided for presupuesto ETL")
+
+        audit.status_message = "Leyendo archivo Excel..."
+        audit.progress_percent = 40
+        audit.save(update_fields=["status_message", "progress_percent"])
+
+        result = run_etl_presupuesto(
+            config=config,
+            excel_path=excel_path,
+            start_date=start_date,
+            end_date=end_date,
+            dry_run=dry_run,
+            batch_size=batch_size,
+        )
+
+        return {
+            "source_rows": int(result.get("source_rows", 0)),
+            "deleted_rows": int(result.get("deleted_rows", 0)),
+            "inserted_rows": int(result.get("inserted_rows", 0)),
+            "summary": result.get("summary", {}),
+        }
 
     source_conn = open_connection(config.source)
     destination_conn = open_connection(config.destination)
@@ -450,31 +565,104 @@ def etl_preview_costo_prod_detalle(request):
     return _etl_preview_for_type(request, "costo_prod_detalle")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_preview_presupuesto(request):
+    """Return ETL Presupuesto Incubadoras preview as JSON."""
+    return _etl_preview_for_type(request, "presupuesto_incubadoras")
+
+
 def _etl_preview_for_type(request, etl_type: str):
     """Return data preview JSON for a fixed etl_type."""
     from incubacion.services import (
         extract_rows,
         extract_rows_costo_prod_detalle,
         get_destination_columns,
+        get_presupuesto_date_range,
         map_columns_and_rows,
         open_connection,
+        read_presupuesto_excel,
+        transform_presupuesto_rows,
     )
 
-    # Parse form parameters
-    form = ETLExecutionForm(request.GET)
-    if not form.is_valid():
-        return JsonResponse({
-            "success": False,
-            "errors": form.errors,
-        }, status=400)
+    if etl_type == "presupuesto_incubadoras":
+        start_date = date.today()
+        end_date = date.today()
+    else:
+        # Parse form parameters
+        form = ETLExecutionForm(request.GET)
+        if not form.is_valid():
+            return JsonResponse({
+                "success": False,
+                "errors": form.errors,
+            }, status=400)
 
-    start_date = form.cleaned_data["start_date"]
-    end_date = form.cleaned_data["end_date"]
+        start_date = form.cleaned_data["start_date"]
+        end_date = form.cleaned_data["end_date"]
+
     etl_definition = _get_etl_definition(etl_type)
-    limit = int(request.GET.get("limit", 5))
+    limit_source = request.POST if etl_type == "presupuesto_incubadoras" else request.GET
+    limit = int(limit_source.get("limit", 5))
 
     try:
         # Build ETL config
+        if etl_type == "presupuesto_incubadoras":
+            uploaded_excel = request.FILES.get("excel_file")
+            temp_preview_path: str | None = None
+            if uploaded_excel is None:
+                return JsonResponse({
+                    "success": False,
+                    "error": "Debe seleccionar un archivo Excel para vista previa.",
+                }, status=400)
+
+            with tempfile.NamedTemporaryFile(suffix=".xlsx", delete=False) as temp_file:
+                for chunk in uploaded_excel.chunks():
+                    temp_file.write(chunk)
+                temp_preview_path = temp_file.name
+
+            excel_path_override = temp_preview_path
+            config, resolved_excel_path = etl_definition["build_config"](excel_path_override)
+            try:
+                start_date, end_date = get_presupuesto_date_range(
+                    excel_path=resolved_excel_path,
+                    sheet_elemento_costo=config.sheet_elemento_costo,
+                    sheet_presupuesto=config.sheet_presupuesto,
+                )
+
+                elemento_map, headers, presupuesto_rows = read_presupuesto_excel(
+                    excel_path=resolved_excel_path,
+                    sheet_elemento_costo=config.sheet_elemento_costo,
+                    sheet_presupuesto=config.sheet_presupuesto,
+                )
+                mapped_columns, mapped_rows, _keys, metrics = transform_presupuesto_rows(
+                    elemento_map=elemento_map,
+                    presupuesto_headers=headers,
+                    presupuesto_rows=presupuesto_rows,
+                    start_date=start_date,
+                    end_date=end_date,
+                    load_timestamp=datetime.now(),
+                )
+
+                sample_rows = mapped_rows[:limit]
+                sample_data = [list(row) for row in sample_rows]
+                return JsonResponse({
+                    "success": True,
+                    "etl_type": etl_type,
+                    "etl_label": etl_definition["label"],
+                    "start_date": start_date.isoformat(),
+                    "end_date": end_date.isoformat(),
+                    "filter_label": etl_definition["filter_label"],
+                    "filter_values": [uploaded_excel.name],
+                    "total_rows": metrics.get("transformed_rows", len(mapped_rows)),
+                    "columns": mapped_columns,
+                    "sample_data": sample_data,
+                    "sample_limit": limit,
+                })
+            finally:
+                if temp_preview_path and os.path.exists(temp_preview_path):
+                    os.remove(temp_preview_path)
+
         config = etl_definition["build_config"]()
         
         # Extract data

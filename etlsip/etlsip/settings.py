@@ -212,6 +212,31 @@ ETL_COSTO_PROD_DETALLE = {
 }
 
 
+ETL_PRESUPUESTO = {
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_PPTO_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_PPTO_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_PPTO_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_PPTO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_PPTO_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_PPTO_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_PPTO_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'DESTINATION_TABLE': os.getenv('ETL_PPTO_DEST_TABLE', 'dbo.ProteinJournal_Ppto'),
+    'DESTINATION_DATE_COLUMN': os.getenv('ETL_PPTO_DEST_DATE_COLUMN', 'fecha_fin_mes'),
+    'DESTINATION_KEY_COLUMN': os.getenv('ETL_PPTO_DEST_KEY_COLUMN', 'centro_costo'),
+    'EXCEL_PATH': os.getenv('ETL_PPTO_EXCEL_PATH', str(BASE_DIR.parent / 'presupuesto incubadoras.xlsx')),
+    'SHEET_ELEMENTO_COSTO': os.getenv('ETL_PPTO_SHEET_ELEMENTO_COSTO', 'elemento_costo'),
+    'SHEET_PRESUPUESTO': os.getenv('ETL_PPTO_SHEET_PRESUPUESTO', 'presupuesto'),
+}
+
+
 # Keycloak Configuration
 KEYCLOAK_CONFIG = {
     'SERVER_URL': os.getenv('KEYCLOAK_SERVER', 'https://cdkcpro.pronaca.com/auth/'),
