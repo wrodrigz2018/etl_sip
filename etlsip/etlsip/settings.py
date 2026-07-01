@@ -22,7 +22,9 @@ except ImportError:  # pragma: no cover - optional dependency
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 if load_dotenv is not None:
+    # Load env file from project folder and workspace root.
     load_dotenv(BASE_DIR / '.env')
+    load_dotenv(BASE_DIR.parent / '.env')
 
 
 # Quick-start development settings - unsuitable for production
@@ -84,8 +86,16 @@ WSGI_APPLICATION = 'etlsip.wsgi.application'
 
 DATABASES = {
     'default': {
-        'ENGINE': 'django.db.backends.sqlite3',
-        'NAME': BASE_DIR / 'db.sqlite3',
+        'ENGINE': os.getenv('DJANGO_DB_ENGINE', 'mssql'),
+        'NAME': os.getenv('DJANGO_DB_NAME', os.getenv('ETL_DEST_DATABASE', 'HtcZoo')),
+        'HOST': os.getenv('DJANGO_DB_HOST', os.getenv('ETL_DEST_SERVER', '')),
+        'PORT': os.getenv('DJANGO_DB_PORT', ''),
+        'USER': os.getenv('DJANGO_DB_USER', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('DJANGO_DB_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'OPTIONS': {
+            'driver': os.getenv('DJANGO_DB_DRIVER', os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server')),
+            'extra_params': os.getenv('DJANGO_DB_EXTRA_PARAMS', 'TrustServerCertificate=yes'),
+        },
     }
 }
 
@@ -134,6 +144,24 @@ def env_bool(name: str, default: bool) -> bool:
     if value is None:
         return default
     return value.strip().lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+
+def _build_db_extra_params(trusted_connection: bool, explicit_params: str) -> str:
+    params = []
+    if trusted_connection:
+        params.append('Trusted_Connection=yes')
+    if explicit_params:
+        params.append(explicit_params.strip())
+    return ';'.join(params)
+
+
+DJANGO_DB_TRUSTED_CONNECTION = env_bool('DJANGO_DB_TRUSTED_CONNECTION', True)
+DJANGO_DB_EXTRA_PARAMS = _build_db_extra_params(
+    trusted_connection=DJANGO_DB_TRUSTED_CONNECTION,
+    explicit_params=os.getenv('DJANGO_DB_EXTRA_PARAMS', 'TrustServerCertificate=yes'),
+)
+
+DATABASES['default']['OPTIONS']['extra_params'] = DJANGO_DB_EXTRA_PARAMS
 
 
 ETL_INCUBACION = {

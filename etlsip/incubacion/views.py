@@ -108,7 +108,7 @@ def etl_login(request):
             user_obj.save()
 
             # Add to etl_executor group
-            etl_group, _ = Group.objects.get_or_create(name="etl_executor")
+            etl_group = _ensure_etl_group()
             user_obj.groups.add(etl_group)
 
             # Authenticate and login
@@ -138,13 +138,13 @@ def etl_login(request):
 
 def _ensure_etl_group() -> Group:
     """Ensure etl_executor group exists with proper permissions."""
-    group, created = Group.objects.get_or_create(name="etl_executor")
-    if created:
-        permissions = Permission.objects.filter(
-            Q(codename__in=["view_etlrunaudit", "change_etlrunaudit"])
-            | Q(content_type__app_label="incubacion")
-        )
-        group.permissions.set(permissions)
+    group, _ = Group.objects.get_or_create(name="etl_executor")
+    # Always sync permissions in case the group already existed without grants.
+    permissions = Permission.objects.filter(
+        Q(codename__in=["view_etlrunaudit", "change_etlrunaudit"])
+        | Q(content_type__app_label="incubacion")
+    )
+    group.permissions.set(permissions)
     return group
 
 
