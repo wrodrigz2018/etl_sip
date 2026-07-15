@@ -73,6 +73,7 @@ class ProteinJournalETLConfig:
     destination_table: str
     destination_date_column: str = "xDate"
     destination_key_column: str = "centro_costo"
+    destination_secondary_key_column: str = "granja_lote"
     sheet_data: str = "incubesa"
     sheet_mapping: str = "columnas"
 
@@ -862,13 +863,21 @@ def read_protein_journal_excel(
                 f"Incomplete mapping metadata for elemento '{elemento_costo}' in sheet {sheet_mapping}"
             )
 
-        elemento_map[key] = {
+        new_mapping = {
             "elemento_costo": elemento_costo,
             "grupo_costo": str(grupo_costo).strip(),
             "objeto_costo": str(objeto_costo).strip(),
             "SourceCode": str(source_code).strip(),
             "SystemStageNo": str(system_stage).strip(),
         }
+
+        existing_mapping = elemento_map.get(key)
+        if existing_mapping is not None and existing_mapping != new_mapping:
+            raise ValueError(
+                f"Duplicate mapping for elemento '{elemento_costo}' with conflicting metadata"
+            )
+
+        elemento_map[key] = new_mapping
 
     if not elemento_map:
         raise ValueError("No valid mappings found in mapping sheet")
@@ -969,7 +978,7 @@ def transform_protein_journal_rows(
         )
 
     generated_rows: list[tuple[Any, ...]] = []
-    delete_keys: set[tuple[date, Any]] = set()
+    delete_keys: set[tuple[date, Any, Any]] = set()
     mapped_columns: set[str] = set()
     ignored_columns: set[str] = set()
     invalid_numeric_values = 0
@@ -1033,7 +1042,7 @@ def transform_protein_journal_rows(
                 continue
 
             mapped_columns.add(header)
-            delete_keys.add((xdate, centro_costo))
+            delete_keys.add((xdate, centro_costo, granja_lote))
             generated_rows.append(
                 (
                     xdate,
@@ -1203,7 +1212,8 @@ def delete_destination_by_keys(
     destination_table: str,
     destination_date_column: str,
     destination_key_column: str,
-    keys: list[tuple[date, Any]],
+    keys: list[tuple[Any, ...]],
+    destination_secondary_key_column: str | None = None,
 ) -> int:
     if not keys:
         return 0
@@ -1211,17 +1221,40 @@ def delete_destination_by_keys(
     destination_table_safe = quote_identifier(destination_table)
     destination_date_column_safe = quote_identifier(destination_date_column)
     destination_key_column_safe = quote_identifier(destination_key_column)
+    destination_secondary_key_column_safe = (
+        quote_identifier(destination_secondary_key_column)
+        if destination_secondary_key_column
+        else None
+    )
 
-    delete_sql = f"""
-        DELETE FROM {destination_table_safe}
-        WHERE {destination_date_column_safe} = ?
-          AND {destination_key_column_safe} = ?
-    """
+    if destination_secondary_key_column_safe:
+        delete_sql = f"""
+            DELETE FROM {destination_table_safe}
+            WHERE {destination_date_column_safe} = ?
+              AND {destination_key_column_safe} = ?
+              AND (
+                    ({destination_secondary_key_column_safe} = ?)
+                 OR ({destination_secondary_key_column_safe} IS NULL AND ? IS NULL)
+              )
+        """
+    else:
+        delete_sql = f"""
+            DELETE FROM {destination_table_safe}
+            WHERE {destination_date_column_safe} = ?
+              AND {destination_key_column_safe} = ?
+        """
 
     cursor = destination_conn.cursor()
     deleted_rows = 0
     for key in keys:
-        cursor.execute(delete_sql, key)
+        if destination_secondary_key_column_safe:
+            if len(key) != 3:
+                raise ValueError("Expected delete key tuple of (date, key, secondary_key)")
+            cursor.execute(delete_sql, (key[0], key[1], key[2], key[2]))
+        else:
+            if len(key) != 2:
+                raise ValueError("Expected delete key tuple of (date, key)")
+            cursor.execute(delete_sql, key)
         if cursor.rowcount and cursor.rowcount > 0:
             deleted_rows += cursor.rowcount
 
@@ -1308,7 +1341,7 @@ def run_etl_protein_journal(
     dry_run: bool,
     batch_size: int,
 ) -> dict[str, Any]:
-    destination_conn = open_connection(config.destination)
+    destination_conn: pyodbc.Connection | None = None
     load_timestamp = datetime.now()
 
     try:
@@ -1344,12 +1377,14 @@ def run_etl_protein_journal(
         if dry_run:
             return result
 
+        destination_conn = open_connection(config.destination)
         destination_conn.autocommit = False
         deleted_rows = delete_destination_by_keys(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             destination_date_column=config.destination_date_column,
             destination_key_column=config.destination_key_column,
+            destination_secondary_key_column=config.destination_secondary_key_column,
             keys=keys,
         )
         inserted_rows = insert_rows(
@@ -1365,10 +1400,12 @@ def run_etl_protein_journal(
         result["inserted_rows"] = inserted_rows
         return result
     except Exception:
-        destination_conn.rollback()
+        if destination_conn is not None:
+            destination_conn.rollback()
         raise
     finally:
-        destination_conn.close()
+        if destination_conn is not None:
+            destination_conn.close()
 
 
 def calculate_data_summary(

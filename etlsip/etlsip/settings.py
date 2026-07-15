@@ -284,6 +284,7 @@ ETL_PROTEIN_JOURNAL = {
     'DESTINATION_TABLE': os.getenv('ETL_PROT_DEST_TABLE', 'dbo.ProteinJournal_Staging'),
     'DESTINATION_DATE_COLUMN': os.getenv('ETL_PROT_DEST_DATE_COLUMN', 'xDate'),
     'DESTINATION_KEY_COLUMN': os.getenv('ETL_PROT_DEST_KEY_COLUMN', 'centro_costo'),
+    'DESTINATION_SECONDARY_KEY_COLUMN': os.getenv('ETL_PROT_DEST_KEY2_COLUMN', 'granja_lote'),
     'EXCEL_PATH': os.getenv('ETL_PROT_EXCEL_PATH', str(BASE_DIR.parent / 'Incubesa - costo por lote.xlsx')),
     'SHEET_DATA': os.getenv('ETL_PROT_SHEET_DATA', 'incubesa'),
     'SHEET_MAPPING': os.getenv('ETL_PROT_SHEET_MAPPING', 'columnas'),

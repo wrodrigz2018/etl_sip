@@ -64,9 +64,37 @@
         <div class="col-lg-6 form-section">
             <div class="card">
                 <div class="card-header bg-primary text-white">
-                    <h5 class="mb-0">▶️ Ejecutar {{ etl_label }}</h5>
+                    <h5 class="mb-0">
+                        {% if is_protein_import %}
+                        📥 Importar archivo Incubesa - costo por lote
+                        {% else %}
+                        ▶️ Ejecutar {{ etl_label }}
+                        {% endif %}
+                    </h5>
                 </div>
                 <div class="card-body">
+                    {% if selected_etl == 'incubacion' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta seccion importaremos del sistema Protein los costos de incubacion por elemento de costo y por lote.
+                    </div>
+                    {% endif %}
+                    {% if selected_etl == 'costo_prod_detalle' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos del sistema Protein los costos de producción en detalle por cada proceso: Cuarto Frío - Máquina - Nacedora - Pollito.
+                    </div>
+                    {% endif %}
+                    {% if selected_etl == 'presupuesto_incubadoras' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos el presupuesto de cada incubadora por elemento de costo.<br>
+                        El presupuesto deberá estar en la plantilla "presupuesto incubadoras.xlsx". No se deben incluir columnas al formato.
+                    </div>
+                    {% endif %}
+                    {% if selected_etl == 'protein_journal_staging' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos el costo de producción por lote de Incubesa por elemento de costo.<br>
+                        La información de costos deberá estar en la plantilla "Incubesa - costo por lote.xlsx". No se deben incluir columnas al formato.
+                    </div>
+                    {% endif %}
                     <form id="etlForm" method="post" action="{% url execute_url %}" enctype="multipart/form-data" novalidate>
                         {% csrf_token %}
                         <input type="hidden" name="etl_type" value="{{ selected_etl }}">
@@ -142,7 +170,13 @@
 
                         {% if show_excel_controls %}
                         <div class="mb-3">
-                            <label for="excelFile" class="form-label">Archivo Excel</label>
+                            <label for="excelFile" class="form-label">
+                                {% if is_protein_import %}
+                                Archivo Incubesa (Excel)
+                                {% else %}
+                                Archivo Excel
+                                {% endif %}
+                            </label>
                             <input
                                 type="file"
                                 class="form-control"
@@ -152,7 +186,11 @@
                                 required
                             >
                             <small class="form-text text-muted d-block mt-1">
+                                {% if is_protein_import %}
+                                Este proceso ejecuta solo la importacion de Incubesa desde el archivo seleccionado.
+                                {% else %}
                                 Debe seleccionar un archivo para ejecutar y para la vista previa.
+                                {% endif %}
                             </small>
                         </div>
                         {% endif %}
@@ -173,7 +211,11 @@
                                 👁️ Vista Previa
                             </button>
                             <button type="submit" class="btn btn-success flex-grow-1" id="submitBtn">
+                                {% if is_protein_import %}
+                                📥 Importar Archivo
+                                {% else %}
                                 🚀 Ejecutar ETL
+                                {% endif %}
                             </button>
                         </div>
                     </form>
@@ -371,7 +413,11 @@
             <div class="modal-footer">
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
                 <button type="button" class="btn btn-success" id="executeFromPreviewBtn">
+                    {% if is_protein_import %}
+                    📥 Importar Archivo
+                    {% else %}
                     🚀 Ejecutar ETL
+                    {% endif %}
                 </button>
             </div>
         </div>
@@ -416,7 +462,7 @@ etlForm.addEventListener('submit', async (e) => {
     resultContainer.style.display = 'none';
 
     try {
-        const response = await fetch('{% url execute_url %}', {
+        const response = await fetch(etlForm.action, {
             method: 'POST',
             headers: {
                 'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
@@ -565,18 +611,29 @@ const previewLoading = document.getElementById('previewLoading');
 const previewContent = document.getElementById('previewContent');
 const previewError = document.getElementById('previewError');
 const executeFromPreviewBtn = document.getElementById('executeFromPreviewBtn');
+const isExcelPreview = {{ show_excel_controls|yesno:"true,false" }};
+
+function limpiarPreview() {
+    document.getElementById('previewDateRange').textContent = '';
+    document.getElementById('previewFilterValues').textContent = '';
+    document.getElementById('previewTotalRows').textContent = '';
+    document.getElementById('previewColumnCount').textContent = '';
+    const table = document.getElementById('previewTable');
+    table.querySelector('thead').innerHTML = '';
+    table.querySelector('tbody').innerHTML = '';
+}
 
 previewBtn.addEventListener('click', async () => {
     const formData = new FormData(etlForm);
-    const etlType = '{{ selected_etl }}';
 
+    limpiarPreview();
     previewLoading.style.display = 'block';
     previewContent.style.display = 'none';
     previewError.style.display = 'none';
 
     try {
         let response;
-        if (etlType === 'presupuesto_incubadoras' || etlType === 'protein_journal_staging') {
+        if (isExcelPreview) {
             const excelFile = formData.get('excel_file');
             if (!excelFile || !excelFile.name) {
                 mostrarErrorPreview('Debe seleccionar un archivo Excel para la vista previa.');
@@ -584,6 +641,7 @@ previewBtn.addEventListener('click', async () => {
             }
             response = await fetch(`{% url preview_url %}`, {
                 method: 'POST',
+                cache: 'no-store',
                 headers: {
                     'X-CSRFToken': document.querySelector('[name=csrfmiddlewaretoken]').value,
                 },
@@ -591,12 +649,19 @@ previewBtn.addEventListener('click', async () => {
             });
         } else {
             const params = new URLSearchParams(formData);
-            response = await fetch(`{% url preview_url %}?${params}`);
+            params.set('_ts', Date.now().toString());
+            response = await fetch(`{% url preview_url %}?${params.toString()}`, {
+                cache: 'no-store',
+            });
         }
 
         const data = await response.json();
 
         if (data.success) {
+            if (isExcelPreview && data.preview_source !== 'excel_file') {
+                mostrarErrorPreview('La vista previa no proviene del archivo cargado. Reintente.');
+                return;
+            }
             mostrarPreview(data);
             previewLoading.style.display = 'none';
             previewContent.style.display = 'block';

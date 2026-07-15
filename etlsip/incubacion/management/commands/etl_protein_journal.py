@@ -174,6 +174,10 @@ class Command(BaseCommand):
             destination_table=etl_settings["DESTINATION_TABLE"],
             destination_date_column=etl_settings.get("DESTINATION_DATE_COLUMN", "xDate"),
             destination_key_column=etl_settings.get("DESTINATION_KEY_COLUMN", "centro_costo"),
+            destination_secondary_key_column=etl_settings.get(
+                "DESTINATION_SECONDARY_KEY_COLUMN",
+                "granja_lote",
+            ),
             sheet_data=etl_settings.get("SHEET_DATA", "incubesa"),
             sheet_mapping=etl_settings.get("SHEET_MAPPING", "columnas"),
         )

@@ -42,7 +42,7 @@ ETL_DEFINITIONS = {
         "filter_label": "Archivo Excel",
     },
     "protein_journal_staging": {
-        "label": "ETL ProteinJournal Staging",
+        "label": "Importacion Incubesa - costo por lote",
         "command": "etl_protein_journal",
         "build_config": ETLProteinJournalCommand._build_config,
         "filter_label": "Archivo Excel",
@@ -232,6 +232,7 @@ def _render_dashboard(request, etl_type: str):
         "execute_url": execute_url_map.get(etl_type, "incubacion:etl_execute_incubacion"),
         "preview_url": preview_url_map.get(etl_type, "incubacion:etl_preview_incubacion"),
         "show_excel_controls": etl_type in {"presupuesto_incubadoras", "protein_journal_staging"},
+        "is_protein_import": etl_type == "protein_journal_staging",
         "default_excel_path": default_excel_path,
     }
     return render(request, "incubacion/dashboard.html", context)
@@ -751,6 +752,8 @@ def _etl_preview_for_type(request, etl_type: str):
                     "success": True,
                     "etl_type": etl_type,
                     "etl_label": etl_definition["label"],
+                    "preview_source": "excel_file",
+                    "source_file_name": uploaded_excel.name,
                     "start_date": start_date.isoformat(),
                     "end_date": end_date.isoformat(),
                     "filter_label": etl_definition["filter_label"],
@@ -817,6 +820,7 @@ def _etl_preview_for_type(request, etl_type: str):
             "success": True,
             "etl_type": etl_type,
             "etl_label": etl_definition["label"],
+            "preview_source": "database",
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
             "filter_label": etl_definition["filter_label"],
