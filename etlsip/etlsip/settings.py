@@ -297,4 +297,4 @@ KEYCLOAK_CONFIG = {
     'CLIENT_ID': os.getenv('KEYCLOAK_CLIENT_ID', 'sip'),
     'REALM_NAME': os.getenv('KEYCLOAK_REALM', 'pronaca-gb'),
 }
-USE_KEYCLOAK = env_bool('USE_KEYCLOAK', False)
+USE_KEYCLOAK = False

@@ -1,56 +1,12 @@
-# Integración Keycloak en ETL
+# Autenticación local en ETL
 
 ## Descripción
 
-La autenticación de ETL ahora soporta **Keycloak** como proveedor de identidad, con fallback a autenticación local (Django) si Keycloak está deshabilitado.
+La autenticación de ETL usa exclusivamente los usuarios locales de Django. Keycloak ya no participa en el inicio de sesión.
 
 ## Configuración
 
-### 1. Variables de Entorno
-
-Edita [etlsip/.env](../.env) con los valores de tu servidor Keycloak:
-
-```env
-# Keycloak
-KEYCLOAK_SERVER=https://cdkcpro.pronaca.com/auth/
-KEYCLOAK_CLIENT_ID=sip
-KEYCLOAK_REALM=pronaca-gb
-USE_KEYCLOAK=true
-```
-
-**Notas:**
-- `KEYCLOAK_SERVER`: URL del servidor Keycloak (incluye `/auth/`)
-- `KEYCLOAK_CLIENT_ID`: ID del cliente configurado en Keycloak
-- `KEYCLOAK_REALM`: Nombre del realm en Keycloak
-- `USE_KEYCLOAK`: `true` para habilitar Keycloak, `false` para usar autenticación local
-
-### 2. Dependencias
-
-Las dependencias están en [requirements.txt](../requirements.txt):
-
-```
-python-keycloak>=3.8.0
-```
-
-Instala si no lo hiciste:
-```bash
-C:/Modelos/pollos/venv/Scripts/python.exe -m pip install python-keycloak
-```
-
 ## Flujo de Autenticación
-
-### Cuando USE_KEYCLOAK=true (Keycloak habilitado)
-
-1. Usuario ingresa credenciales en `/etl/login/`
-2. Sistema valida contra servidor Keycloak
-3. Si válido:
-   - Crea o actualiza usuario en Django
-   - Agrega usuario al grupo `etl_executor`
-   - Inicia sesión y redirige a dashboard
-4. Si inválido:
-   - Muestra error: "Usuario o contraseña incorrectos en Keycloak"
-
-### Cuando USE_KEYCLOAK=false (Autenticación local)
 
 1. Usuario ingresa credenciales en `/etl/login/`
 2. Sistema valida contra base de datos Django
@@ -59,21 +15,9 @@ C:/Modelos/pollos/venv/Scripts/python.exe -m pip install python-keycloak
 4. Si inválido:
    - Muestra error: "Usuario o contraseña incorrectos"
 
-## Crear Usuarios en Keycloak
+## Crear Usuarios Locales
 
-Los usuarios se crean automáticamente en Django cuando:
-1. Se autentican exitosamente contra Keycloak
-2. No existen aún en la base de datos Django
-
-Los datos se sincronizan desde Keycloak:
-- **username** (preferred_username)
-- **email**
-- **first_name** (given_name)
-- **last_name** (family_name)
-
-## Crear Usuarios Locales (sin Keycloak)
-
-Si USE_KEYCLOAK=false, usa el comando de management:
+Usa el comando de management:
 
 ```bash
 C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py create_etl_user usuario1 --password pass123
@@ -81,48 +25,15 @@ C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py create_etl_user usuar
 
 ## Archivos Modificados
 
-- [etlsip/incubacion/auth.py](../incubacion/auth.py) — Módulo de autenticación Keycloak
-- [etlsip/incubacion/views.py](../incubacion/views.py) — Vistas actualizadas con soporte Keycloak
-- [etlsip/etlsip/settings.py](../etlsip/settings.py) — Configuración Keycloak
-- [etlsip/.env](../.env) — Variables de entorno Keycloak
-- [etlsip/requirements.txt](../requirements.txt) — Dependencia python-keycloak
+- [etlsip/incubacion/views.py](../incubacion/views.py) — Vista de autenticación local
+- [etlsip/etlsip/settings.py](../etlsip/settings.py) — Configuración del proyecto
+- [etlsip/requirements.txt](../requirements.txt) — Dependencias del proyecto
 
 ## Troubleshooting
 
-### Error: "Usuario o contraseña incorrectos en Keycloak"
+### Usuario o contraseña incorrectos
 
-**Causas posibles:**
-1. Credenciales inválidas en Keycloak
-2. Servidor Keycloak no accesible
-3. Client ID o Realm incorrecto
-
-**Solución:**
-- Verifica credenciales en el servidor Keycloak
-- Confirma que KEYCLOAK_SERVER, KEYCLOAK_CLIENT_ID y KEYCLOAK_REALM son correctos
-- Prueba conectividad: `ping cdkcpro.pronaca.com`
-
-### Error: Timeout conectando a Keycloak
-
-**Causas posibles:**
-1. Servidor Keycloak caído
-2. Problema de conectividad de red
-3. Firewall bloqueando puerto HTTPS
-
-**Solución:**
-- Verifica que el servidor Keycloak esté en línea
-- Confirma conectividad de red hacia `cdkcpro.pronaca.com:443`
-- Si falla persistentemente, deshabilita Keycloak: `USE_KEYCLOAK=false`
-
-### Cambiar de Keycloak a Autenticación Local
-
-1. Edita [etlsip/.env](../.env):
-   ```env
-   USE_KEYCLOAK=false
-   ```
-
-2. Reinicia el servidor Django
-
-3. Los usuarios creados en Keycloak seguirán existiendo en Django
+Verifica que el usuario exista en Django y restablece su contraseña con `create_etl_user` si es necesario.
 
 ## Monitoreo
 
@@ -147,9 +58,7 @@ User.objects.get(username='admin').groups.all()  # Ver grupos de un usuario
 
 ## Seguridad
 
-⚠️ **Nunca guardes credenciales Keycloak en el código.** Siempre usa variables de entorno.
-
-✅ **Mejores prácticas:**
+**Mejores prácticas:**
 1. `.env` es local (no se sube a control de versiones)
 2. `.env.example` contiene plantilla sin credenciales reales
 3. Credenciales se cargan automáticamente al iniciar Django

@@ -13,7 +13,6 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
-from incubacion.auth import KeycloakAuthenticator
 from incubacion.forms import ETLExecutionForm
 from incubacion.management.commands.etl_costo_prod_detalle import Command as ETLCostoProdDetalleCommand
 from incubacion.management.commands.etl_incubacion import Command as ETLCommand
@@ -57,21 +56,8 @@ def index(request):
     return redirect("incubacion:etl_login")
 
 
-def _get_keycloak_authenticator() -> KeycloakAuthenticator | None:
-    """Get Keycloak authenticator if enabled."""
-    if not getattr(settings, 'USE_KEYCLOAK', False):
-        return None
-
-    config = getattr(settings, 'KEYCLOAK_CONFIG', {})
-    return KeycloakAuthenticator(
-        server_url=config.get('SERVER_URL', ''),
-        client_id=config.get('CLIENT_ID', ''),
-        realm_name=config.get('REALM_NAME', ''),
-    )
-
-
 def etl_login(request):
-    """Login view supporting both Keycloak and local authentication."""
+    """Authenticate users against the local Django database."""
     if request.user.is_authenticated:
         return redirect("incubacion:etl_dashboard_incubacion")
 
@@ -79,59 +65,16 @@ def etl_login(request):
         username = request.POST.get("username", "").strip()
         password = request.POST.get("password", "").strip()
 
-        keycloak_auth = _get_keycloak_authenticator()
+        user = authenticate(request, username=username, password=password)
+        if user is not None:
+            login(request, user)
+            return redirect("incubacion:etl_dashboard_incubacion")
 
-        # Try Keycloak first if enabled
-        user_info = None
-        if keycloak_auth:
-            user_info = keycloak_auth.authenticate(username, password)
-
-        if user_info:
-            # Create or update user from Keycloak
-            user_obj, created = User.objects.get_or_create(
-                username=user_info['username'],
-                defaults={
-                    "email": user_info['email'],
-                    "first_name": user_info['first_name'],
-                    "last_name": user_info['last_name'],
-                }
-            )
-
-            if not created:
-                user_obj.email = user_info['email']
-                user_obj.first_name = user_info['first_name']
-                user_obj.last_name = user_info['last_name']
-                user_obj.save()
-
-            # Update password
-            user_obj.set_password(password)
-            user_obj.save()
-
-            # Add to etl_executor group
-            etl_group = _ensure_etl_group()
-            user_obj.groups.add(etl_group)
-
-            # Authenticate and login
-            user = authenticate(request, username=user_info['username'], password=password)
-            if user is not None:
-                login(request, user)
-                return redirect("incubacion:etl_dashboard_incubacion")
-
-        elif not keycloak_auth:
-            # Fallback to local authentication if Keycloak not enabled
-            user = authenticate(request, username=username, password=password)
-            if user is not None:
-                login(request, user)
-                return redirect("incubacion:etl_dashboard_incubacion")
-
-        # Error message
-        error_msg = (
-            "Usuario o contraseña incorrectos en Keycloak"
-            if keycloak_auth
-            else "Usuario o contraseña incorrectos"
+        return render(
+            request,
+            "incubacion/login.html",
+            {"error": "Usuario o contraseña incorrectos"},
         )
-        context = {"error": error_msg}
-        return render(request, "incubacion/login.html", context)
 
     return render(request, "incubacion/login.html")
 
