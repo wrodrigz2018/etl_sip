@@ -325,7 +325,7 @@ def build_recepcion_extract_query(source_table: str) -> str:
             ComplexEntityNo AS No_lote,
             TransDate AS Fecha_envio,
             Units AS Huevos_recibidos,
-            DATEADD(day, -7 + DATEPART(weekday, TransDate), TransDate) AS Fecha_semana
+            DATEADD(day, 1 - DATEPART(weekday, TransDate), TransDate) AS Fecha_semana
         FROM {source_table_safe}
         WHERE EggTransCode = ?
           AND FacilityType = ?
@@ -586,6 +586,14 @@ def insert_rows(
     return inserted_rows
 
 
+def strip_string_values(rows: list[tuple[Any, ...]]) -> list[tuple[Any, ...]]:
+    """Trim leading/trailing whitespace from string values (e.g. CHAR columns padded by SQL Server)."""
+    return [
+        tuple(value.strip() if isinstance(value, str) else value for value in row)
+        for row in rows
+    ]
+
+
 def insert_rows_recepcion(
     destination_conn: pyodbc.Connection,
     destination_table: str,
@@ -605,6 +613,8 @@ def insert_rows_recepcion(
         raise ValueError(
             f"No common columns between source {columns} and destination {dest_columns}"
         )
+
+    mapped_rows = strip_string_values(mapped_rows)
 
     destination_column_details = get_destination_column_details(destination_conn, destination_table)
     mapped_rows = normalize_decimal_rows_for_destination(
