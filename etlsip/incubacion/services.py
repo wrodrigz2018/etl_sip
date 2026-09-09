@@ -58,6 +58,21 @@ class CostoProdDetalleETLConfig:
 
 
 @dataclass(frozen=True)
+class RecepcionETLConfig:
+    source: SqlServerConnectionConfig
+    destination: SqlServerConnectionConfig
+    source_table: str
+    destination_table: str
+    destination_date_column: str = "Fecha_envio"
+    egg_trans_code: int = 17
+    facility_type: int = 1
+
+
+RECEPCION_NULL_COLUMNS = ("Cliente", "Tipo_documento", "No_documento")
+RECEPCION_TIMESTAMP_COLUMN = "datemod"
+
+
+@dataclass(frozen=True)
 class PresupuestoETLConfig:
     destination: SqlServerConnectionConfig
     destination_table: str
@@ -300,6 +315,45 @@ def extract_rows_costo_prod_detalle(
     return columns, [tuple(row) for row in rows]
 
 
+def build_recepcion_extract_query(source_table: str) -> str:
+    source_table_safe = quote_identifier(source_table)
+
+    return f"""
+        SELECT
+            HatcheryNo AS No_incubadora,
+            FarmNo AS No_granja,
+            ComplexEntityNo AS No_lote,
+            TransDate AS Fecha_envio,
+            Units AS Huevos_recibidos,
+            DATEADD(day, -7 + DATEPART(weekday, TransDate), TransDate) AS Fecha_semana
+        FROM {source_table_safe}
+        WHERE EggTransCode = ?
+          AND FacilityType = ?
+          AND TransDate >= ?
+          AND TransDate <= ?
+    """
+
+
+def extract_rows_recepcion(
+    source_conn: pyodbc.Connection,
+    source_table: str,
+    start_date: date,
+    end_date: date,
+    egg_trans_code: int,
+    facility_type: int,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    query = build_recepcion_extract_query(source_table=source_table)
+    params: list[Any] = [egg_trans_code, facility_type, start_date, end_date]
+
+    cursor = source_conn.cursor()
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
+    cursor.close()
+
+    return columns, [tuple(row) for row in rows]
+
+
 def delete_destination_range(
     destination_conn: pyodbc.Connection,
     destination_table: str,
@@ -532,6 +586,80 @@ def insert_rows(
     return inserted_rows
 
 
+def insert_rows_recepcion(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    columns: list[str],
+    rows: list[tuple[Any, ...]],
+    batch_size: int,
+) -> int:
+    """Insert Recepcion rows, filling Cliente/Tipo_documento/No_documento with NULL
+    and datemod with the current system date. irn (identity) is left to SQL Server."""
+    if not rows:
+        return 0
+
+    dest_columns = get_destination_columns(destination_conn, destination_table)
+    mapped_columns, mapped_rows = map_columns_and_rows(columns, rows, dest_columns)
+
+    if not mapped_columns:
+        raise ValueError(
+            f"No common columns between source {columns} and destination {dest_columns}"
+        )
+
+    destination_column_details = get_destination_column_details(destination_conn, destination_table)
+    mapped_rows = normalize_decimal_rows_for_destination(
+        mapped_columns=mapped_columns,
+        mapped_rows=mapped_rows,
+        destination_column_details=destination_column_details,
+    )
+
+    dest_columns_lower = {column.lower() for column in dest_columns}
+    mapped_lower = {column.lower() for column in mapped_columns}
+
+    extra_null_columns = [
+        column
+        for column in RECEPCION_NULL_COLUMNS
+        if column.lower() in dest_columns_lower and column.lower() not in mapped_lower
+    ]
+    include_timestamp = (
+        RECEPCION_TIMESTAMP_COLUMN.lower() in dest_columns_lower
+        and RECEPCION_TIMESTAMP_COLUMN.lower() not in mapped_lower
+    )
+
+    final_columns = list(mapped_columns) + extra_null_columns
+    if include_timestamp:
+        final_columns.append(RECEPCION_TIMESTAMP_COLUMN)
+
+    load_timestamp = datetime.now()
+    final_rows: list[tuple[Any, ...]] = []
+    for row in mapped_rows:
+        extended_row = list(row) + [None] * len(extra_null_columns)
+        if include_timestamp:
+            extended_row.append(load_timestamp)
+        final_rows.append(tuple(extended_row))
+
+    destination_table_safe = quote_identifier(destination_table)
+    columns_safe = ", ".join(quote_identifier(column) for column in final_columns)
+    placeholders = ", ".join("?" for _ in final_columns)
+
+    insert_sql = f"""
+        INSERT INTO {destination_table_safe} ({columns_safe})
+        VALUES ({placeholders})
+    """
+
+    cursor = destination_conn.cursor()
+    cursor.fast_executemany = True
+
+    inserted_rows = 0
+    for index in range(0, len(final_rows), batch_size):
+        chunk = final_rows[index : index + batch_size]
+        cursor.executemany(insert_sql, chunk)
+        inserted_rows += len(chunk)
+
+    cursor.close()
+    return inserted_rows
+
+
 def run_etl(
     config: IncubacionETLConfig,
     start_date: date,
@@ -628,6 +756,63 @@ def run_etl_costo_prod_detalle(
             end_date=range_end,
         )
         inserted_rows = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+
+        return {
+            "source_rows": len(rows),
+            "deleted_rows": deleted_rows,
+            "inserted_rows": inserted_rows,
+        }
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        source_conn.close()
+        destination_conn.close()
+
+
+def run_etl_recepcion(
+    config: RecepcionETLConfig,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, int]:
+    source_conn = open_connection(config.source)
+    destination_conn = open_connection(config.destination)
+
+    try:
+        columns, rows = extract_rows_recepcion(
+            source_conn=source_conn,
+            source_table=config.source_table,
+            start_date=start_date,
+            end_date=end_date,
+            egg_trans_code=config.egg_trans_code,
+            facility_type=config.facility_type,
+        )
+
+        if dry_run:
+            return {
+                "source_rows": len(rows),
+                "deleted_rows": 0,
+                "inserted_rows": 0,
+            }
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_range(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            destination_date_column=config.destination_date_column,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        inserted_rows = insert_rows_recepcion(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             columns=columns,

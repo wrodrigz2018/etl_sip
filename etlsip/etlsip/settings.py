@@ -49,6 +49,7 @@ INSTALLED_APPS = [
     'django.contrib.messages',
     'django.contrib.staticfiles',
     'incubacion',
+    'appHtcZoo',
 ]
 
 MIDDLEWARE = [
@@ -237,6 +238,45 @@ ETL_COSTO_PROD_DETALLE = {
     ],
     'SPECIES_TYPE': int(os.getenv('ETL_COSTO_SPECIES_TYPE', '1')),
     'FARM_TYPE': int(os.getenv('ETL_COSTO_FARM_TYPE', '2')),
+}
+
+
+ETL_RECEPCION = {
+    'SOURCE': {
+        'SERVER': os.getenv('ETL_RECEPCION_SOURCE_SERVER', os.getenv('ETL_SOURCE_SERVER', '')),
+        'DATABASE': os.getenv('ETL_RECEPCION_SOURCE_DATABASE', os.getenv('ETL_SOURCE_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_RECEPCION_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_RECEPCION_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_RECEPCION_SOURCE_TRUSTED_CONNECTION',
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_RECEPCION_SOURCE_DRIVER',
+            os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_RECEPCION_SOURCE_TIMEOUT', os.getenv('ETL_SOURCE_TIMEOUT', '30'))),
+    },
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_RECEPCION_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_RECEPCION_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_RECEPCION_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_RECEPCION_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_RECEPCION_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_RECEPCION_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_RECEPCION_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'SOURCE_TABLE': os.getenv('ETL_RECEPCION_SOURCE_TABLE', 'mtech.mvHimEggRoomReceiving'),
+    'DESTINATION_TABLE': os.getenv('ETL_RECEPCION_DEST_TABLE', 'dbo.Recepcion'),
+    'DESTINATION_DATE_COLUMN': os.getenv('ETL_RECEPCION_DEST_DATE_COLUMN', 'Fecha_envio'),
+    'EGG_TRANS_CODE': int(os.getenv('ETL_RECEPCION_EGG_TRANS_CODE', '17')),
+    'FACILITY_TYPE': int(os.getenv('ETL_RECEPCION_FACILITY_TYPE', '1')),
 }
 
 

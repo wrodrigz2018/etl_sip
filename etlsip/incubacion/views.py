@@ -18,6 +18,7 @@ from incubacion.management.commands.etl_costo_prod_detalle import Command as ETL
 from incubacion.management.commands.etl_incubacion import Command as ETLCommand
 from incubacion.management.commands.etl_protein_journal import Command as ETLProteinJournalCommand
 from incubacion.management.commands.etl_presupuesto_incubadoras import Command as ETLPresupuestoCommand
+from incubacion.management.commands.etl_recepcion import Command as ETLRecepcionCommand
 from incubacion.models import ETLRunAudit
 
 
@@ -45,6 +46,12 @@ ETL_DEFINITIONS = {
         "command": "etl_protein_journal",
         "build_config": ETLProteinJournalCommand._build_config,
         "filter_label": "Archivo Excel",
+    },
+    "recepcion": {
+        "label": "ETL Recepcion de Huevos",
+        "command": "etl_recepcion",
+        "build_config": ETLRecepcionCommand._build_config,
+        "filter_label": "Codigo Transaccion",
     },
 }
 
@@ -123,6 +130,8 @@ def etl_dashboard(request):
         return redirect("incubacion:etl_dashboard_presupuesto")
     if selected_etl == "protein_journal_staging":
         return redirect("incubacion:etl_dashboard_protein_journal")
+    if selected_etl == "recepcion":
+        return redirect("incubacion:etl_dashboard_recepcion")
     return redirect("incubacion:etl_dashboard_incubacion")
 
 
@@ -137,6 +146,8 @@ def _render_dashboard(request, etl_type: str):
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="presupuesto_incubadoras")[:20]
     elif etl_type == "protein_journal_staging":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="protein_journal_staging")[:20]
+    elif etl_type == "recepcion":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="recepcion")[:20]
     else:
         runs = ETLRunAudit.objects.filter(
             Q(summary_json__etl_type="incubacion")
@@ -149,12 +160,14 @@ def _render_dashboard(request, etl_type: str):
         "costo_prod_detalle": "incubacion:etl_execute_costo_prod_detalle",
         "presupuesto_incubadoras": "incubacion:etl_execute_presupuesto",
         "protein_journal_staging": "incubacion:etl_execute_protein_journal",
+        "recepcion": "incubacion:etl_execute_recepcion",
     }
     preview_url_map = {
         "incubacion": "incubacion:etl_preview_incubacion",
         "costo_prod_detalle": "incubacion:etl_preview_costo_prod_detalle",
         "presupuesto_incubadoras": "incubacion:etl_preview_presupuesto",
         "protein_journal_staging": "incubacion:etl_preview_protein_journal",
+        "recepcion": "incubacion:etl_preview_recepcion",
     }
 
     default_excel_path = ""
@@ -210,6 +223,13 @@ def etl_dashboard_protein_journal(request):
 
 
 @login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_recepcion(request):
+    """Dedicated dashboard for ETL Recepcion de Huevos."""
+    return _render_dashboard(request, "recepcion")
+
+
+@login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.change_etlrunaudit", raise_exception=True)
 @require_POST
 def etl_execute(request):
@@ -248,6 +268,14 @@ def etl_execute_presupuesto(request):
 def etl_execute_protein_journal(request):
     """Execute ETL ProteinJournal Staging explicitly."""
     return _execute_etl_for_type(request, "protein_journal_staging")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_recepcion(request):
+    """Execute ETL Recepcion de Huevos explicitly."""
+    return _execute_etl_for_type(request, "recepcion")
 
 
 def _execute_etl_for_type(request, etl_type: str):
@@ -403,7 +431,9 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         delete_destination_range,
         extract_rows,
         extract_rows_costo_prod_detalle,
+        extract_rows_recepcion,
         insert_rows,
+        insert_rows_recepcion,
         month_end,
         open_connection,
         run_etl_protein_journal,
@@ -478,6 +508,17 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
             )
             delete_start_date = month_end(start_date)
             delete_end_date = month_end(end_date)
+        elif etl_type == "recepcion":
+            columns, rows = extract_rows_recepcion(
+                source_conn=source_conn,
+                source_table=config.source_table,
+                start_date=start_date,
+                end_date=end_date,
+                egg_trans_code=config.egg_trans_code,
+                facility_type=config.facility_type,
+            )
+            delete_start_date = start_date
+            delete_end_date = end_date
         else:
             columns, rows = extract_rows(
                 source_conn=source_conn,
@@ -513,7 +554,7 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         audit.progress_percent = 75
         audit.save(update_fields=["status_message", "progress_percent"])
 
-        inserted_rows = insert_rows(
+        inserted_rows = (insert_rows_recepcion if etl_type == "recepcion" else insert_rows)(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             columns=columns,
@@ -592,11 +633,20 @@ def etl_preview_protein_journal(request):
     return _etl_preview_for_type(request, "protein_journal_staging")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_GET
+def etl_preview_recepcion(request):
+    """Return ETL Recepcion de Huevos preview as JSON."""
+    return _etl_preview_for_type(request, "recepcion")
+
+
 def _etl_preview_for_type(request, etl_type: str):
     """Return data preview JSON for a fixed etl_type."""
     from incubacion.services import (
         extract_rows,
         extract_rows_costo_prod_detalle,
+        extract_rows_recepcion,
         get_destination_columns,
         get_protein_journal_date_range,
         get_presupuesto_date_range,
@@ -725,6 +775,15 @@ def _etl_preview_for_type(request, etl_type: str):
                     species_type=config.species_type,
                     farm_type=config.farm_type,
                 )
+            elif etl_type == "recepcion":
+                columns, rows = extract_rows_recepcion(
+                    source_conn=source_conn,
+                    source_table=config.source_table,
+                    start_date=start_date,
+                    end_date=end_date,
+                    egg_trans_code=config.egg_trans_code,
+                    facility_type=config.facility_type,
+                )
             else:
                 columns, rows = extract_rows(
                     source_conn=source_conn,
@@ -753,7 +812,12 @@ def _etl_preview_for_type(request, etl_type: str):
         )
 
         # Prepare response
-        filter_values = list(config.hatcheries) if etl_type == "costo_prod_detalle" else list(config.source_codes)
+        if etl_type == "costo_prod_detalle":
+            filter_values = list(config.hatcheries)
+        elif etl_type == "recepcion":
+            filter_values = [f"EggTransCode={config.egg_trans_code}", f"FacilityType={config.facility_type}"]
+        else:
+            filter_values = list(config.source_codes)
         sample_rows = mapped_rows[:limit]
         
         # Convert rows to list format

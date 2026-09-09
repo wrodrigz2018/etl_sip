@@ -95,6 +95,11 @@
                         La información de costos deberá estar en la plantilla "Incubesa - costo por lote.xlsx". No se deben incluir columnas al formato.
                     </div>
                     {% endif %}
+                    {% if selected_etl == 'recepcion' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos la recepción de huevos por incubadora, granja y lote desde el sistema Protein.
+                    </div>
+                    {% endif %}
                     <form id="etlForm" method="post" action="{% url execute_url %}" enctype="multipart/form-data" novalidate>
                         {% csrf_token %}
                         <input type="hidden" name="etl_type" value="{{ selected_etl }}">
