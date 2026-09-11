@@ -100,6 +100,16 @@
                         En esta sección importaremos la recepción de huevos por incubadora, granja y lote desde el sistema Protein.
                     </div>
                     {% endif %}
+                    {% if selected_etl == 'cargas' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos las cargas de incubación desde el archivo cargas.xlsx hacia la tabla dbo.cargas.
+                    </div>
+                    {% endif %}
+                    {% if selected_etl == 'ovoscopia' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos los registros de ovoscopía desde Mtech hacia dbo.Ovoscopia.
+                    </div>
+                    {% endif %}
                     <form id="etlForm" method="post" action="{% url execute_url %}" enctype="multipart/form-data" novalidate>
                         {% csrf_token %}
                         <input type="hidden" name="etl_type" value="{{ selected_etl }}">
@@ -178,6 +188,8 @@
                             <label for="excelFile" class="form-label">
                                 {% if is_protein_import %}
                                 Archivo Incubesa (Excel)
+                                {% elif is_cargas_import %}
+                                Archivo de cargas (Excel)
                                 {% else %}
                                 Archivo Excel
                                 {% endif %}
@@ -193,6 +205,8 @@
                             <small class="form-text text-muted d-block mt-1">
                                 {% if is_protein_import %}
                                 Este proceso ejecuta solo la importacion de Incubesa desde el archivo seleccionado.
+                                {% elif is_cargas_import %}
+                                Seleccione el archivo cargas.xlsx para ejecutar o previsualizar la importación.
                                 {% else %}
                                 Debe seleccionar un archivo para ejecutar y para la vista previa.
                                 {% endif %}
@@ -216,7 +230,7 @@
                                 👁️ Vista Previa
                             </button>
                             <button type="submit" class="btn btn-success flex-grow-1" id="submitBtn">
-                                {% if is_protein_import %}
+                                {% if is_protein_import or is_cargas_import %}
                                 📥 Importar Archivo
                                 {% else %}
                                 🚀 Ejecutar ETL
@@ -274,7 +288,7 @@
                 </div>
                 <div class="card-body">
                     <div class="command-line" id="cliCommand">
-                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% elif selected_etl == 'presupuesto_incubadoras' %}etl_presupuesto_incubadoras{% elif selected_etl == 'protein_journal_staging' %}etl_protein_journal{% else %}etl_incubacion{% endif %} \<br>
+                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% elif selected_etl == 'presupuesto_incubadoras' %}etl_presupuesto_incubadoras{% elif selected_etl == 'protein_journal_staging' %}etl_protein_journal{% elif selected_etl == 'cargas' %}etl_cargas{% elif selected_etl == 'ovoscopia' %}etl_ovoscopia{% else %}etl_incubacion{% endif %} \<br>
                         {% if not show_excel_controls %}
                         &nbsp;&nbsp;--start-date YYYY-MM-DD \<br>
                         &nbsp;&nbsp;--end-date YYYY-MM-DD \<br>

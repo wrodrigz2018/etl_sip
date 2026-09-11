@@ -4,7 +4,7 @@ import os
 import re
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 import calendar
 
@@ -68,6 +68,13 @@ class RecepcionETLConfig:
     facility_type: int = 1
 
 
+@dataclass(frozen=True)
+class OvoscopiaETLConfig:
+    source: SqlServerConnectionConfig
+    destination: SqlServerConnectionConfig
+    destination_table: str = "dbo.Ovoscopia"
+
+
 RECEPCION_NULL_COLUMNS = ("Cliente", "Tipo_documento", "No_documento")
 RECEPCION_TIMESTAMP_COLUMN = "datemod"
 
@@ -93,6 +100,13 @@ class ProteinJournalETLConfig:
     sheet_mapping: str = "columnas"
 
 
+@dataclass(frozen=True)
+class CargasETLConfig:
+    destination: SqlServerConnectionConfig
+    destination_table: str = "dbo.cargas"
+    sheet_data: str = "Hoja1"
+
+
 _IDENTIFIER_PART_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -101,6 +115,33 @@ def quote_identifier(identifier: str) -> str:
     if not parts or any(not _IDENTIFIER_PART_PATTERN.match(part) for part in parts):
         raise ValueError(f"Invalid SQL identifier: {identifier}")
     return ".".join(f"[{part}]" for part in parts)
+
+
+CARGAS_COLUMNS = (
+    "No_incubadora", "No_granja", "No_lote", "No_maquina", "Fecha_carga",
+    "Fecha_nacimiento", "No_carga", "Edad", "Semana", "Edad_huevo",
+    "Huevos_cargados", "Huevos_transferidos", "Huevos_contaminados",
+    "Pollos_nacidos", "Pollos_descarte", "Pollos_primera", "Pollos_eliminados",
+    "Kg_HuevoCargado", "Kg_HuevoTransferido", "Kg_Pollos", "IRN", "Etapa",
+    "Huevos_eliminados", "Fecha_transf", "Pollos_primera_H", "Pollos_primera_M",
+    "Orden_prod", "Pollos_primera_Mixto", "Pollos_recuperados", "Huevo_recibido",
+    "Categoria", "Tamano_huevo", "Tipo_maquina", "Fecha_postura", "No_sala",
+)
+
+CARGAS_KEY_COLUMNS = (
+    "No_incubadora", "No_granja", "No_lote", "No_maquina", "Fecha_carga", "No_carga",
+)
+
+CARGAS_DATE_COLUMNS = {"Fecha_carga", "Fecha_nacimiento", "Fecha_transf", "Fecha_postura"}
+CARGAS_INT_COLUMNS = {"No_maquina", "No_carga", "Edad_huevo"}
+CARGAS_NUMERIC_COLUMNS = {
+    "Edad", "Semana",
+    "Huevos_cargados", "Huevos_transferidos", "Huevos_contaminados", "Pollos_nacidos",
+    "Pollos_descarte", "Pollos_primera", "Pollos_eliminados", "Kg_HuevoCargado",
+    "Kg_HuevoTransferido", "Kg_Pollos", "Huevos_eliminados", "Pollos_primera_H",
+    "Pollos_primera_M", "Orden_prod", "Pollos_primera_Mixto", "Pollos_recuperados",
+    "Huevo_recibido", "No_sala",
+}
 
 
 def build_connection_string(config: SqlServerConnectionConfig) -> str:
@@ -354,6 +395,48 @@ def extract_rows_recepcion(
     return columns, [tuple(row) for row in rows]
 
 
+def build_ovoscopia_extract_query() -> str:
+    return """
+        SELECT h.HatcheryNo AS No_incubadora,
+               e.FarmNo AS No_granja,
+               e.ComplexEntityNo AS No_lote,
+               ht.SetDate AS Fecha_carga,
+               ht.HatchDate AS Fecha_nacimiento,
+               TRY_CONVERT(int, ht.LineSetCode) AS No_carga,
+               CASE WHEN ht.BOType = 2 THEN 'Miraje' ELSE 'Residuos' END AS Tipo_registro,
+               CEILING(DATEDIFF(day, e.AvgDatePlaced, ht.SetDate) / 7.0) AS Semana,
+               ht.NumberOfSamples AS Huevos_muestra,
+               ht.U_Infertil AS Huevos_infertiles,
+               ht.U_Mort1 AS Mortalidad_1p,
+               ht.U_Mort2 AS Mortalidad_2p,
+               ht.U_Mort3 AS Mortalidad_3p,
+               ht.U_Deforme AS Deformes,
+               ht.U_Contaminado AS Contaminados,
+               ht.U_PicadoNoNacido AS PicadoNoNacido,
+               ht.IRN
+        FROM mtech.HimBreakoutTrans ht
+        INNER JOIN mtech.ProteinFacilityHatcheries h
+            ON h.IRN = ht.ProteinFacilityHatcheriesIRN
+        INNER JOIN mtech.mvBimEntities e
+            ON e.IRN = ht.ProteinEntitiesIRN
+        WHERE ht.HatchDate >= ? AND ht.HatchDate < ?
+    """
+
+
+def extract_rows_ovoscopia(
+    source_conn: pyodbc.Connection,
+    start_date: date,
+    end_date: date,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    cursor = source_conn.cursor()
+    end_exclusive = end_date + timedelta(days=1)
+    cursor.execute(build_ovoscopia_extract_query(), start_date, end_exclusive)
+    rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
+    cursor.close()
+    return columns, [tuple(row) for row in rows]
+
+
 def delete_destination_range(
     destination_conn: pyodbc.Connection,
     destination_table: str,
@@ -542,6 +625,7 @@ def insert_rows(
     columns: list[str],
     rows: list[tuple[Any, ...]],
     batch_size: int,
+    fast_executemany: bool = True,
 ) -> int:
     if not rows:
         return 0
@@ -574,7 +658,7 @@ def insert_rows(
     """
 
     cursor = destination_conn.cursor()
-    cursor.fast_executemany = True
+    cursor.fast_executemany = fast_executemany
 
     inserted_rows = 0
     for index in range(0, len(mapped_rows), batch_size):
@@ -844,6 +928,38 @@ def run_etl_recepcion(
         destination_conn.close()
 
 
+def run_etl_ovoscopia(
+    config: OvoscopiaETLConfig,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, int]:
+    source_conn = open_connection(config.source)
+    destination_conn = open_connection(config.destination)
+    try:
+        columns, rows = extract_rows_ovoscopia(source_conn, start_date, end_date)
+        if dry_run:
+            return {"source_rows": len(rows), "deleted_rows": 0, "inserted_rows": 0}
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_range(
+            destination_conn, config.destination_table, "Fecha_nacimiento", start_date, end_date
+        )
+        inserted_rows = insert_rows(
+            destination_conn, config.destination_table, columns, rows, batch_size,
+            fast_executemany=False,
+        )
+        destination_conn.commit()
+        return {"source_rows": len(rows), "deleted_rows": deleted_rows, "inserted_rows": inserted_rows}
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        source_conn.close()
+        destination_conn.close()
+
+
 def parse_excel_date(value: Any) -> date:
     if isinstance(value, datetime):
         return value.date()
@@ -871,6 +987,48 @@ def parse_excel_int(value: Any, field_name: str) -> int:
         raise ValueError(f"Invalid numeric value for {field_name}: {value}") from exc
 
     return int(decimal_value.quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+
+
+def parse_cargas_datetime(value: Any, field_name: str, required: bool) -> datetime | None:
+    if value in (None, ""):
+        if required:
+            raise ValueError(f"Missing required value for {field_name}")
+        return None
+    if isinstance(value, datetime):
+        return value
+    if isinstance(value, date):
+        return datetime.combine(value, datetime.min.time())
+    if isinstance(value, str):
+        try:
+            return datetime.fromisoformat(value.strip())
+        except ValueError as exc:
+            raise ValueError(f"Invalid datetime value for {field_name}: {value}") from exc
+    raise ValueError(f"Invalid datetime value for {field_name}: {value}")
+
+
+def parse_cargas_decimal(value: Any, field_name: str, required: bool) -> Decimal | None:
+    if value in (None, ""):
+        if required:
+            raise ValueError(f"Missing required value for {field_name}")
+        return None
+    try:
+        decimal_value = Decimal(str(value))
+    except Exception as exc:
+        raise ValueError(f"Invalid numeric value for {field_name}: {value}") from exc
+    if decimal_value != decimal_value.quantize(Decimal("1")):
+        raise ValueError(f"Expected an integer numeric value for {field_name}: {value}")
+    return decimal_value
+
+
+def parse_cargas_float(value: Any, field_name: str, required: bool) -> float | None:
+    if value in (None, ""):
+        if required:
+            raise ValueError(f"Missing required value for {field_name}")
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"Invalid numeric value for {field_name}: {value}") from exc
 
 
 def normalize_header_name(value: Any) -> str:
@@ -1783,3 +1941,153 @@ def calculate_data_summary(
     
     finally:
         cursor.close()
+
+
+def read_cargas_excel(
+    excel_path: str,
+    sheet_data: str,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    if not os.path.exists(excel_path):
+        raise ValueError(f"Excel file does not exist: {excel_path}")
+
+    workbook = load_workbook(excel_path, data_only=True, read_only=True)
+    try:
+        if sheet_data not in workbook.sheetnames:
+            raise ValueError(f"Missing required sheet: {sheet_data}")
+        worksheet = workbook[sheet_data]
+        rows = list(worksheet.iter_rows(values_only=True))
+    finally:
+        workbook.close()
+
+    if not rows:
+        raise ValueError("Cargas sheet is empty")
+
+    headers = [str(value).strip() if value is not None else "" for value in rows[0]]
+    header_index = {normalize_header_name(header): index for index, header in enumerate(headers) if header}
+    missing = [column for column in CARGAS_COLUMNS if normalize_header_name(column) not in header_index]
+    if missing:
+        raise ValueError(f"Cargas sheet is missing columns: {', '.join(missing)}")
+
+    ordered_rows = []
+    for row in rows[1:]:
+        ordered_rows.append(tuple(row[header_index[normalize_header_name(column)]] for column in CARGAS_COLUMNS))
+    return list(CARGAS_COLUMNS), ordered_rows
+
+
+def get_cargas_date_range(excel_path: str, sheet_data: str) -> tuple[date, date]:
+    columns, rows = read_cargas_excel(excel_path, sheet_data)
+    date_index = columns.index("Fecha_carga")
+    dates = [
+        parse_cargas_datetime(row[date_index], "Fecha_carga", required=True).date()
+        for row in rows
+    ]
+    if not dates:
+        raise ValueError("No valid Fecha_carga values found in cargas sheet")
+    return min(dates), max(dates)
+
+
+def transform_cargas_rows(
+    source_columns: list[str],
+    source_rows: list[tuple[Any, ...]],
+) -> tuple[list[str], list[tuple[Any, ...]], list[tuple[Any, ...]], dict[str, Any]]:
+    nullable_columns = {
+        "Edad", "Semana", "Kg_HuevoCargado", "Kg_HuevoTransferido", "Kg_Pollos",
+        "Etapa", "Huevos_eliminados", "Fecha_transf", "Pollos_primera_H",
+        "Pollos_primera_M", "Orden_prod", "Pollos_primera_Mixto", "Pollos_recuperados",
+        "Huevo_recibido", "Categoria", "Tamano_huevo", "Tipo_maquina", "Fecha_postura",
+        "No_sala",
+    }
+    float_columns = {"Edad", "Semana", "Kg_HuevoCargado", "Kg_HuevoTransferido", "Kg_Pollos"}
+    rows: list[tuple[Any, ...]] = []
+    keys: set[tuple[Any, ...]] = set()
+
+    for row_number, source_row in enumerate(source_rows, start=2):
+        values = []
+        for column, value in zip(source_columns, source_row):
+            required = column not in nullable_columns
+            if column in CARGAS_DATE_COLUMNS:
+                parsed = parse_cargas_datetime(value, column, required)
+            elif column in CARGAS_INT_COLUMNS:
+                parsed = parse_excel_int(value, column) if required or value not in (None, "") else None
+            elif column in CARGAS_NUMERIC_COLUMNS:
+                if column in float_columns:
+                    parsed = parse_cargas_float(value, column, required)
+                else:
+                    parsed = parse_cargas_decimal(value, column, required)
+            else:
+                if value in (None, ""):
+                    if required:
+                        raise ValueError(f"Row {row_number}: missing required value for {column}")
+                    parsed = None
+                else:
+                    parsed = str(value).strip()
+            values.append(parsed)
+
+        normalized_row = tuple(values)
+        rows.append(normalized_row)
+        keys.add(tuple(normalized_row[source_columns.index(column)] for column in CARGAS_KEY_COLUMNS))
+
+    return source_columns, rows, sorted(keys, key=str), {
+        "source_rows": len(source_rows),
+        "transformed_rows": len(rows),
+        "key_count": len(keys),
+    }
+
+
+def delete_cargas_by_keys(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    keys: list[tuple[Any, ...]],
+) -> int:
+    if not keys:
+        return 0
+    table = quote_identifier(destination_table)
+    predicates = " AND ".join(f"{quote_identifier(column)} = ?" for column in CARGAS_KEY_COLUMNS)
+    delete_sql = f"DELETE FROM {table} WHERE {predicates}"
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for key in keys:
+            cursor.execute(delete_sql, key)
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
+def run_etl_cargas(
+    config: CargasETLConfig,
+    excel_path: str,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, Any]:
+    source_columns, source_rows = read_cargas_excel(excel_path, config.sheet_data)
+    columns, rows, keys, metrics = transform_cargas_rows(source_columns, source_rows)
+    result = {
+        "source_rows": metrics["source_rows"],
+        "deleted_rows": 0,
+        "inserted_rows": 0,
+        "summary": {**metrics, "excel_path": excel_path, "sheet_data": config.sheet_data},
+    }
+    if dry_run:
+        return result
+
+    destination_conn = open_connection(config.destination)
+    try:
+        destination_conn.autocommit = False
+        result["deleted_rows"] = delete_cargas_by_keys(destination_conn, config.destination_table, keys)
+        result["inserted_rows"] = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+        return result
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        destination_conn.close()

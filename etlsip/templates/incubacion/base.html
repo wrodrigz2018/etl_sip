@@ -78,10 +78,12 @@
                     <a class="menu-block{% if selected_etl == 'protein_journal_staging' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_protein_journal' %}">Importar costo por lote de Incubesa</a>
                 </div>
             </details>
-            <details class="menu-accordion" {% if selected_etl == 'recepcion' %}open{% endif %}>
+            <details class="menu-accordion" {% if selected_etl == 'recepcion' or selected_etl == 'cargas' or selected_etl == 'ovoscopia' %}open{% endif %}>
                 <summary>Zootécnicos</summary>
                 <div class="menu-accordion-content">
                     <a class="menu-block{% if selected_etl == 'recepcion' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_recepcion' %}">Importar recepción de huevos</a>
+                    <a class="menu-block{% if selected_etl == 'cargas' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_cargas' %}">Importar cargas</a>
+                    <a class="menu-block{% if selected_etl == 'ovoscopia' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_ovoscopia' %}">Importar ovoscopia</a>
                     <span class="menu-block menu-block-disabled">Importar nacimiento</span>
                     <span class="menu-block menu-block-disabled">Importar transferencia de huevos</span>
                     <span class="menu-block menu-block-disabled">Importar venta de huevos</span>

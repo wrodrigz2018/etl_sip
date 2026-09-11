@@ -280,6 +280,29 @@ ETL_RECEPCION = {
 }
 
 
+ETL_OVOSCOPIA = {
+    'SOURCE': {
+        'SERVER': os.getenv('ETL_OVOSCOPIA_SOURCE_SERVER', '192.168.3.26'),
+        'DATABASE': os.getenv('ETL_OVOSCOPIA_SOURCE_DATABASE', 'Mtech_v7'),
+        'USERNAME': os.getenv('ETL_OVOSCOPIA_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_OVOSCOPIA_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool('ETL_OVOSCOPIA_SOURCE_TRUSTED_CONNECTION', True),
+        'DRIVER': os.getenv('ETL_OVOSCOPIA_SOURCE_DRIVER', os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server')),
+        'TIMEOUT': int(os.getenv('ETL_OVOSCOPIA_SOURCE_TIMEOUT', '30')),
+    },
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_OVOSCOPIA_DEST_SERVER', '1s1-pipbdd'),
+        'DATABASE': os.getenv('ETL_OVOSCOPIA_DEST_DATABASE', 'HtcZoo'),
+        'USERNAME': os.getenv('ETL_OVOSCOPIA_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_OVOSCOPIA_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool('ETL_OVOSCOPIA_DEST_TRUSTED_CONNECTION', True),
+        'DRIVER': os.getenv('ETL_OVOSCOPIA_DEST_DRIVER', os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server')),
+        'TIMEOUT': int(os.getenv('ETL_OVOSCOPIA_DEST_TIMEOUT', '30')),
+    },
+    'DESTINATION_TABLE': os.getenv('ETL_OVOSCOPIA_DEST_TABLE', 'dbo.Ovoscopia'),
+}
+
+
 ETL_PRESUPUESTO = {
     'DESTINATION': {
         'SERVER': os.getenv('ETL_PPTO_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
@@ -328,6 +351,28 @@ ETL_PROTEIN_JOURNAL = {
     'EXCEL_PATH': os.getenv('ETL_PROT_EXCEL_PATH', str(BASE_DIR.parent / 'Incubesa - costo por lote.xlsx')),
     'SHEET_DATA': os.getenv('ETL_PROT_SHEET_DATA', 'incubesa'),
     'SHEET_MAPPING': os.getenv('ETL_PROT_SHEET_MAPPING', 'columnas'),
+}
+
+
+ETL_CARGAS = {
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_CARGAS_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_CARGAS_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_CARGAS_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_CARGAS_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_CARGAS_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_CARGAS_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_CARGAS_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'DESTINATION_TABLE': os.getenv('ETL_CARGAS_DEST_TABLE', 'dbo.cargas'),
+    'EXCEL_PATH': os.getenv('ETL_CARGAS_EXCEL_PATH', str(BASE_DIR.parent / 'cargas.xlsx')),
+    'SHEET_DATA': os.getenv('ETL_CARGAS_SHEET_DATA', 'Hoja1'),
 }
 
 

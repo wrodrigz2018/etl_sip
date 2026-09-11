@@ -19,6 +19,8 @@ from incubacion.management.commands.etl_incubacion import Command as ETLCommand
 from incubacion.management.commands.etl_protein_journal import Command as ETLProteinJournalCommand
 from incubacion.management.commands.etl_presupuesto_incubadoras import Command as ETLPresupuestoCommand
 from incubacion.management.commands.etl_recepcion import Command as ETLRecepcionCommand
+from incubacion.management.commands.etl_cargas import Command as ETLCargasCommand
+from incubacion.management.commands.etl_ovoscopia import Command as ETLOvoscopiaCommand
 from incubacion.models import ETLRunAudit
 
 
@@ -52,6 +54,18 @@ ETL_DEFINITIONS = {
         "command": "etl_recepcion",
         "build_config": ETLRecepcionCommand._build_config,
         "filter_label": "Codigo Transaccion",
+    },
+    "cargas": {
+        "label": "Importar cargas de incubación",
+        "command": "etl_cargas",
+        "build_config": ETLCargasCommand._build_config,
+        "filter_label": "Archivo Excel",
+    },
+    "ovoscopia": {
+        "label": "Importar ovoscopia",
+        "command": "etl_ovoscopia",
+        "build_config": ETLOvoscopiaCommand._build_config,
+        "filter_label": "Rango de fechas",
     },
 }
 
@@ -132,6 +146,10 @@ def etl_dashboard(request):
         return redirect("incubacion:etl_dashboard_protein_journal")
     if selected_etl == "recepcion":
         return redirect("incubacion:etl_dashboard_recepcion")
+    if selected_etl == "cargas":
+        return redirect("incubacion:etl_dashboard_cargas")
+    if selected_etl == "ovoscopia":
+        return redirect("incubacion:etl_dashboard_ovoscopia")
     return redirect("incubacion:etl_dashboard_incubacion")
 
 
@@ -148,6 +166,10 @@ def _render_dashboard(request, etl_type: str):
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="protein_journal_staging")[:20]
     elif etl_type == "recepcion":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="recepcion")[:20]
+    elif etl_type == "cargas":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="cargas")[:20]
+    elif etl_type == "ovoscopia":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="ovoscopia")[:20]
     else:
         runs = ETLRunAudit.objects.filter(
             Q(summary_json__etl_type="incubacion")
@@ -161,6 +183,8 @@ def _render_dashboard(request, etl_type: str):
         "presupuesto_incubadoras": "incubacion:etl_execute_presupuesto",
         "protein_journal_staging": "incubacion:etl_execute_protein_journal",
         "recepcion": "incubacion:etl_execute_recepcion",
+        "cargas": "incubacion:etl_execute_cargas",
+        "ovoscopia": "incubacion:etl_execute_ovoscopia",
     }
     preview_url_map = {
         "incubacion": "incubacion:etl_preview_incubacion",
@@ -168,6 +192,8 @@ def _render_dashboard(request, etl_type: str):
         "presupuesto_incubadoras": "incubacion:etl_preview_presupuesto",
         "protein_journal_staging": "incubacion:etl_preview_protein_journal",
         "recepcion": "incubacion:etl_preview_recepcion",
+        "cargas": "incubacion:etl_preview_cargas",
+        "ovoscopia": "incubacion:etl_preview_ovoscopia",
     }
 
     default_excel_path = ""
@@ -176,6 +202,9 @@ def _render_dashboard(request, etl_type: str):
         default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
     elif etl_type == "protein_journal_staging":
         etl_settings = getattr(settings, "ETL_PROTEIN_JOURNAL", {})
+        default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
+    elif etl_type == "cargas":
+        etl_settings = getattr(settings, "ETL_CARGAS", {})
         default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
 
     context = {
@@ -187,8 +216,10 @@ def _render_dashboard(request, etl_type: str):
         "etl_label": etl_definition["label"],
         "execute_url": execute_url_map.get(etl_type, "incubacion:etl_execute_incubacion"),
         "preview_url": preview_url_map.get(etl_type, "incubacion:etl_preview_incubacion"),
-        "show_excel_controls": etl_type in {"presupuesto_incubadoras", "protein_journal_staging"},
+        "show_excel_controls": etl_type in {"presupuesto_incubadoras", "protein_journal_staging", "cargas"},
         "is_protein_import": etl_type == "protein_journal_staging",
+        "is_cargas_import": etl_type == "cargas",
+        "is_ovoscopia_import": etl_type == "ovoscopia",
         "default_excel_path": default_excel_path,
     }
     return render(request, "incubacion/dashboard.html", context)
@@ -227,6 +258,19 @@ def etl_dashboard_protein_journal(request):
 def etl_dashboard_recepcion(request):
     """Dedicated dashboard for ETL Recepcion de Huevos."""
     return _render_dashboard(request, "recepcion")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_cargas(request):
+    """Dedicated dashboard for importing incubation loads."""
+    return _render_dashboard(request, "cargas")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_ovoscopia(request):
+    return _render_dashboard(request, "ovoscopia")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -278,11 +322,26 @@ def etl_execute_recepcion(request):
     return _execute_etl_for_type(request, "recepcion")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_cargas(request):
+    """Execute the cargas Excel import explicitly."""
+    return _execute_etl_for_type(request, "cargas")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_ovoscopia(request):
+    return _execute_etl_for_type(request, "ovoscopia")
+
+
 def _execute_etl_for_type(request, etl_type: str):
     """Execute ETL for a fixed etl_type."""
     form = ETLExecutionForm(request.POST)
 
-    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging"}
+    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging", "cargas"}
 
     if etl_type in excel_etl_types:
         try:
@@ -346,13 +405,19 @@ def _execute_etl_for_type(request, etl_type: str):
                     sheet_presupuesto=config.sheet_presupuesto,
                 )
             else:
-                from incubacion.services import get_protein_journal_date_range
+                from incubacion.services import get_cargas_date_range, get_protein_journal_date_range
 
-                start_date, end_date = get_protein_journal_date_range(
-                    excel_path=resolved_excel_path,
-                    sheet_data=config.sheet_data,
-                    sheet_mapping=config.sheet_mapping,
-                )
+                if etl_type == "cargas":
+                    start_date, end_date = get_cargas_date_range(
+                        excel_path=resolved_excel_path,
+                        sheet_data=config.sheet_data,
+                    )
+                else:
+                    start_date, end_date = get_protein_journal_date_range(
+                        excel_path=resolved_excel_path,
+                        sheet_data=config.sheet_data,
+                        sheet_mapping=config.sheet_mapping,
+                    )
         else:
             config = etl_definition["build_config"]()
 
@@ -432,6 +497,7 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         extract_rows,
         extract_rows_costo_prod_detalle,
         extract_rows_recepcion,
+        extract_rows_ovoscopia,
         insert_rows,
         insert_rows_recepcion,
         month_end,
@@ -486,6 +552,37 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
             "deleted_rows": int(result.get("deleted_rows", 0)),
             "inserted_rows": int(result.get("inserted_rows", 0)),
             "summary": result.get("summary", {}),
+        }
+
+    if etl_type == "cargas":
+        if not excel_path:
+            raise ValueError("No Excel path provided for cargas ETL")
+        from incubacion.services import run_etl_cargas
+
+        audit.status_message = "Leyendo archivo Excel..."
+        audit.progress_percent = 40
+        audit.save(update_fields=["status_message", "progress_percent"])
+        result = run_etl_cargas(
+            config=config,
+            excel_path=excel_path,
+            dry_run=dry_run,
+            batch_size=batch_size,
+        )
+        return {
+            "source_rows": int(result.get("source_rows", 0)),
+            "deleted_rows": int(result.get("deleted_rows", 0)),
+            "inserted_rows": int(result.get("inserted_rows", 0)),
+            "summary": result.get("summary", {}),
+        }
+
+    if etl_type == "ovoscopia":
+        from incubacion.services import run_etl_ovoscopia
+        result = run_etl_ovoscopia(config, start_date, end_date, dry_run, batch_size)
+        return {
+            "source_rows": int(result["source_rows"]),
+            "deleted_rows": int(result["deleted_rows"]),
+            "inserted_rows": int(result["inserted_rows"]),
+            "summary": {"etl_type": etl_type},
         }
 
     source_conn = open_connection(config.source)
@@ -641,12 +738,28 @@ def etl_preview_recepcion(request):
     return _etl_preview_for_type(request, "recepcion")
 
 
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_preview_cargas(request):
+    """Return cargas Excel preview as JSON."""
+    return _etl_preview_for_type(request, "cargas")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_GET
+def etl_preview_ovoscopia(request):
+    return _etl_preview_for_type(request, "ovoscopia")
+
+
 def _etl_preview_for_type(request, etl_type: str):
     """Return data preview JSON for a fixed etl_type."""
     from incubacion.services import (
         extract_rows,
         extract_rows_costo_prod_detalle,
         extract_rows_recepcion,
+        extract_rows_ovoscopia,
         get_destination_columns,
         get_protein_journal_date_range,
         get_presupuesto_date_range,
@@ -656,9 +769,12 @@ def _etl_preview_for_type(request, etl_type: str):
         read_presupuesto_excel,
         transform_protein_journal_rows,
         transform_presupuesto_rows,
+        read_cargas_excel,
+        transform_cargas_rows,
+        get_cargas_date_range,
     )
 
-    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging"}
+    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging", "cargas"}
 
     if etl_type in excel_etl_types:
         start_date = date.today()
@@ -719,25 +835,34 @@ def _etl_preview_for_type(request, etl_type: str):
                         load_timestamp=datetime.now(),
                     )
                 else:
-                    start_date, end_date = get_protein_journal_date_range(
-                        excel_path=resolved_excel_path,
-                        sheet_data=config.sheet_data,
-                        sheet_mapping=config.sheet_mapping,
-                    )
+                    if etl_type == "cargas":
+                        start_date, end_date = get_cargas_date_range(
+                            excel_path=resolved_excel_path,
+                            sheet_data=config.sheet_data,
+                        )
+                        mapped_columns, mapped_rows, _keys, metrics = transform_cargas_rows(
+                            *read_cargas_excel(resolved_excel_path, config.sheet_data),
+                        )
+                    else:
+                        start_date, end_date = get_protein_journal_date_range(
+                            excel_path=resolved_excel_path,
+                            sheet_data=config.sheet_data,
+                            sheet_mapping=config.sheet_mapping,
+                        )
 
-                    elemento_map, headers, data_rows = read_protein_journal_excel(
-                        excel_path=resolved_excel_path,
-                        sheet_data=config.sheet_data,
-                        sheet_mapping=config.sheet_mapping,
-                    )
-                    mapped_columns, mapped_rows, _keys, metrics = transform_protein_journal_rows(
-                        elemento_map=elemento_map,
-                        data_headers=headers,
-                        data_rows=data_rows,
-                        start_date=start_date,
-                        end_date=end_date,
-                        load_timestamp=datetime.now(),
-                    )
+                        elemento_map, headers, data_rows = read_protein_journal_excel(
+                            excel_path=resolved_excel_path,
+                            sheet_data=config.sheet_data,
+                            sheet_mapping=config.sheet_mapping,
+                        )
+                        mapped_columns, mapped_rows, _keys, metrics = transform_protein_journal_rows(
+                            elemento_map=elemento_map,
+                            data_headers=headers,
+                            data_rows=data_rows,
+                            start_date=start_date,
+                            end_date=end_date,
+                            load_timestamp=datetime.now(),
+                        )
 
                 sample_rows = mapped_rows[:limit]
                 sample_data = [list(row) for row in sample_rows]
@@ -775,6 +900,8 @@ def _etl_preview_for_type(request, etl_type: str):
                     species_type=config.species_type,
                     farm_type=config.farm_type,
                 )
+            elif etl_type == "ovoscopia":
+                columns, rows = extract_rows_ovoscopia(source_conn, start_date, end_date)
             elif etl_type == "recepcion":
                 columns, rows = extract_rows_recepcion(
                     source_conn=source_conn,
@@ -814,6 +941,8 @@ def _etl_preview_for_type(request, etl_type: str):
         # Prepare response
         if etl_type == "costo_prod_detalle":
             filter_values = list(config.hatcheries)
+        elif etl_type == "ovoscopia":
+            filter_values = [f"HatchDate={start_date.isoformat()}..{end_date.isoformat()}"]
         elif etl_type == "recepcion":
             filter_values = [f"EggTransCode={config.egg_trans_code}", f"FacilityType={config.facility_type}"]
         else:
