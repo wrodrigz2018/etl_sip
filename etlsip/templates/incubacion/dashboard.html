@@ -3,72 +3,18 @@
 
 {% block title %}Panel ETL - Ejecutor de ETLs{% endblock %}
 
-{% block extra_css %}
-<style>
-    .form-section {
-        margin-bottom: 3rem;
-    }
-    .status-badge {
-        font-weight: bold;
-        padding: 0.5rem 1rem;
-    }
-    .status-success {
-        background-color: #28a745;
-        color: white;
-    }
-    .status-failed {
-        background-color: #dc3545;
-        color: white;
-    }
-    .status-dry-run {
-        background-color: #ffc107;
-        color: black;
-    }
-    .status-running {
-        background-color: #17a2b8;
-        color: white;
-    }
-    .progress-container {
-        display: none;
-        margin-top: 1rem;
-    }
-    .command-line {
-        background-color: #f8f9fa;
-        padding: 1rem;
-        border-radius: 0.5rem;
-        font-family: monospace;
-        font-size: 0.85rem;
-        word-break: break-all;
-        border-left: 4px solid #3498db;
-    }
-    .table-responsive {
-        max-height: 600px;
-        overflow-y: auto;
-    }
-    .preview-table {
-        font-size: 0.85rem;
-    }
-    .preview-table th {
-        position: sticky;
-        top: 0;
-        background-color: #f8f9fa;
-        z-index: 1;
-    }
-</style>
-{% endblock %}
-
 {% block content %}
 <div class="container">
     <div class="row">
         <!-- Sección de Ejecución -->
         <div class="col-lg-6 form-section">
-            <div class="card">
+            <div class="card rise-in">
                 <div class="card-header bg-primary text-white">
                     <h5 class="mb-0">
                         {% if is_protein_import %}
-                        📥 Importar archivo Incubesa - costo por lote
+                        <i class="bi bi-cloud-arrow-up-fill me-1"></i>Importar archivo Incubesa - costo por lote
                         {% else %}
-                        ▶️ Ejecutar {{ etl_label }}
+                        <i class="bi bi-play-fill me-1"></i>Ejecutar {{ etl_label }}
                         {% endif %}
                     </h5>
                 </div>
@@ -227,13 +173,13 @@
                         <!-- Submit Button -->
                         <div class="d-grid gap-2 d-sm-flex gap-2">
                             <button type="button" class="btn btn-info" id="previewBtn" data-bs-toggle="modal" data-bs-target="#previewModal">
-                                👁️ Vista Previa
+                                <i class="bi bi-eye-fill me-1"></i>Vista Previa
                             </button>
                             <button type="submit" class="btn btn-success flex-grow-1" id="submitBtn">
                                 {% if is_protein_import or is_cargas_import %}
-                                📥 Importar Archivo
+                                <i class="bi bi-cloud-arrow-up-fill me-1"></i>Importar Archivo
                                 {% else %}
-                                🚀 Ejecutar ETL
+                                <i class="bi bi-rocket-takeoff-fill me-1"></i>Ejecutar ETL
                                 {% endif %}
                             </button>
                         </div>
@@ -271,7 +217,7 @@
                     <div id="summaryContainer" class="mt-3" style="display: none;">
                         <div class="card">
                             <div class="card-header bg-light">
-                                <h6 class="mb-0">📊 Resumen de Datos Exportados</h6>
+                                <h6 class="mb-0"><i class="bi bi-bar-chart-fill me-1"></i>Resumen de Datos Exportados</h6>
                             </div>
                             <div class="card-body">
                                 <div id="summaryContent"></div>
@@ -282,9 +228,9 @@
             </div>
 
             <!-- Comando CLI equivalente -->
-            <div class="card mt-3">
+            <div class="card mt-3 rise-in rise-in-delay-1">
                 <div class="card-header bg-info text-white">
-                    <h6 class="mb-0">💻 Comando CLI Equivalente</h6>
+                    <h6 class="mb-0"><i class="bi bi-terminal-fill me-1"></i>Comando CLI Equivalente</h6>
                 </div>
                 <div class="card-body">
                     <div class="command-line" id="cliCommand">
@@ -296,7 +242,7 @@
                         &nbsp;&nbsp;--batch-size 1000
                     </div>
                     <button class="btn btn-sm btn-outline-info mt-2" onclick="copiarComando()">
-                        📋 Copiar
+                        <i class="bi bi-clipboard-fill me-1"></i>Copiar
                     </button>
                 </div>
             </div>
@@ -304,9 +250,9 @@
 
         <!-- Sección de Histórico -->
         <div class="col-lg-6 form-section">
-            <div class="card">
+            <div class="card rise-in rise-in-delay-2">
                 <div class="card-header bg-secondary text-white">
-                    <h5 class="mb-0">📜 Histórico de Corridas</h5>
+                    <h5 class="mb-0"><i class="bi bi-clock-history me-1"></i>Histórico de Corridas</h5>
                 </div>
                 <div class="card-body p-0">
                     <div class="table-responsive">
@@ -361,7 +307,7 @@
                                     <tr class="table-danger">
                                         <td colspan="5">
                                             <small class="text-danger">
-                                                ⚠️ Error: {{ run.error_message|truncatewords:20 }}
+                                                <i class="bi bi-exclamation-triangle-fill"></i> Error: {{ run.error_message|truncatewords:20 }}
                                             </small>
                                         </td>
                                     </tr>
@@ -388,7 +334,7 @@
     <div class="modal-dialog modal-xl">
         <div class="modal-content">
             <div class="modal-header bg-info text-white">
-                <h5 class="modal-title" id="previewModalLabel">👁️ Vista Previa de Datos</h5>
+                <h5 class="modal-title" id="previewModalLabel"><i class="bi bi-eye-fill me-1"></i>Vista Previa de Datos</h5>
                 <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
             </div>
             <div class="modal-body">
@@ -413,7 +359,7 @@
 
                     <hr>
 
-                    <h6>📊 Muestra de Datos</h6>
+                    <h6><i class="bi bi-bar-chart-fill me-1"></i>Muestra de Datos</h6>
                     <div class="table-responsive preview-table">
                         <table class="table table-sm table-hover mb-0" id="previewTable">
                             <thead class="table-light">
@@ -433,9 +379,9 @@
                 <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cerrar</button>
                 <button type="button" class="btn btn-success" id="executeFromPreviewBtn">
                     {% if is_protein_import %}
-                    📥 Importar Archivo
+                    <i class="bi bi-cloud-arrow-up-fill me-1"></i>Importar Archivo
                     {% else %}
-                    🚀 Ejecutar ETL
+                    <i class="bi bi-rocket-takeoff-fill me-1"></i>Ejecutar ETL
                     {% endif %}
                 </button>
             </div>
@@ -451,6 +397,7 @@ const etlForm = document.getElementById('etlForm');
 const progressContainer = document.getElementById('progressContainer');
 const resultContainer = document.getElementById('resultContainer');
 const submitBtn = document.getElementById('submitBtn');
+const submitBtnIdleLabel = submitBtn.innerHTML;
 let currentRunId = null;
 let pollingInterval = null;
 
@@ -476,7 +423,7 @@ etlForm.addEventListener('submit', async (e) => {
     actualizarComandoCLI(startDate, endDate, batchSize, dryRun === 'true');
 
     submitBtn.disabled = true;
-    submitBtn.innerHTML = '⏳ Ejecutando...';
+    submitBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-1" role="status"></span>Ejecutando...';
     progressContainer.style.display = 'block';
     resultContainer.style.display = 'none';
 
@@ -497,13 +444,13 @@ etlForm.addEventListener('submit', async (e) => {
         } else {
             mostrarError('Error al ejecutar ETL', data.errors || data.message);
             submitBtn.disabled = false;
-            submitBtn.innerHTML = '🚀 Ejecutar ETL';
+            submitBtn.innerHTML = submitBtnIdleLabel;
             progressContainer.style.display = 'none';
         }
     } catch (error) {
         mostrarError('Error de conexión', error.message);
         submitBtn.disabled = false;
-        submitBtn.innerHTML = '🚀 Ejecutar ETL';
+        submitBtn.innerHTML = submitBtnIdleLabel;
         progressContainer.style.display = 'none';
     }
 });
@@ -521,7 +468,7 @@ function iniciarPolling() {
                 if (!data.is_running) {
                     clearInterval(pollingInterval);
                     submitBtn.disabled = false;
-                    submitBtn.innerHTML = '🚀 Ejecutar ETL';
+                    submitBtn.innerHTML = submitBtnIdleLabel;
                     mostrarResultado(data);
                     // location.reload();  // Don't reload - show results instead
                 }
@@ -553,28 +500,28 @@ function mostrarResultado(data) {
     progressContainer.style.display = 'none';
 
     if (data.status === 'SUCCESS') {
-        resultAlert.className = 'alert alert-success';
-        resultTitle.innerHTML = '✅ ETL Completado Exitosamente';
+        resultAlert.className = 'alert alert-success rise-in';
+        resultTitle.innerHTML = '<i class="bi bi-check-circle-fill me-1"></i>ETL Completado Exitosamente';
         resultMessage.innerHTML = `
             <strong>Filas extraídas:</strong> ${data.source_rows.toLocaleString()}<br>
             <strong>Filas borradas:</strong> ${data.deleted_rows.toLocaleString()}<br>
             <strong>Filas insertadas:</strong> ${data.inserted_rows.toLocaleString()}
         `;
-        
+
         // Show summary if available
         if (data.summary && data.summary.overall_stats) {
             mostrarResumen(data.summary);
         }
     } else if (data.status === 'DRY_RUN') {
-        resultAlert.className = 'alert alert-warning';
-        resultTitle.innerHTML = '⚠️ Dry Run Completado';
+        resultAlert.className = 'alert alert-warning rise-in';
+        resultTitle.innerHTML = '<i class="bi bi-droplet-half me-1"></i>Dry Run Completado';
         resultMessage.innerHTML = `
             <strong>Filas que se extraerían:</strong> ${data.source_rows.toLocaleString()}<br>
             <em>No se han modificado datos en destino.</em>
         `;
     } else if (data.status === 'FAILED') {
-        resultAlert.className = 'alert alert-danger';
-        resultTitle.innerHTML = '❌ ETL Falló';
+        resultAlert.className = 'alert alert-danger rise-in';
+        resultTitle.innerHTML = '<i class="bi bi-x-circle-fill me-1"></i>ETL Falló';
         resultMessage.innerHTML = data.error_message || 'Error desconocido';
     }
 
@@ -583,8 +530,8 @@ function mostrarResultado(data) {
 
 // Mostrar error
 function mostrarError(title, message) {
-    resultAlert.className = 'alert alert-danger';
-    resultTitle.innerHTML = `❌ ${title}`;
+    resultAlert.className = 'alert alert-danger rise-in';
+    resultTitle.innerHTML = `<i class="bi bi-exclamation-triangle-fill me-1"></i>${title}`;
     resultMessage.innerHTML = typeof message === 'string' ? message : JSON.stringify(message);
     resultContainer.style.display = 'block';
 }
@@ -617,10 +564,29 @@ function actualizarComandoCLI(startDate, endDate, batchSize, dryRun) {
 function copiarComando() {
     const comando = document.getElementById('cliCommand').innerText;
     navigator.clipboard.writeText(comando).then(() => {
-        alert('✅ Comando copiado al portapapeles');
+        mostrarToast('Comando copiado al portapapeles', 'bi-clipboard-check-fill');
     }).catch(err => {
         console.error('Error al copiar:', err);
+        mostrarToast('No se pudo copiar el comando', 'bi-exclamation-triangle-fill', true);
     });
+}
+
+// Toast ligero para confirmaciones rápidas
+let toastTimeout = null;
+function mostrarToast(message, icon, isError) {
+    let toast = document.getElementById('appToast');
+    if (!toast) {
+        toast = document.createElement('div');
+        toast.id = 'appToast';
+        toast.className = 'app-toast';
+        document.body.appendChild(toast);
+    }
+    toast.className = `app-toast${isError ? ' app-toast-error' : ''} rise-in`;
+    toast.innerHTML = `<i class="bi ${icon} me-2"></i>${message}`;
+    clearTimeout(toastTimeout);
+    toastTimeout = setTimeout(() => {
+        toast.remove();
+    }, 2500);
 }
 
 // Vista Previa
@@ -766,7 +732,7 @@ function mostrarResumen(summary) {
     let html = '';
     
     // Estadísticas generales
-    html += '<h6 class="mt-3 mb-2">📈 Estadísticas Generales</h6>';
+    html += '<h6 class="mt-3 mb-2"><i class="bi bi-graph-up-arrow me-1"></i>Estadísticas Generales</h6>';
     html += '<div class="table-responsive"><table class="table table-sm table-bordered">';
     html += '<thead><tr><th>Columna</th><th>Suma</th><th>Promedio</th><th>Mín</th><th>Máx</th><th>Registros</th></tr></thead><tbody>';
     
@@ -785,7 +751,7 @@ function mostrarResumen(summary) {
     
     // Resumen por incubadora
     if (summary.by_incubadora && summary.by_incubadora.length > 0) {
-        html += '<h6 class="mt-4 mb-2">🏭 Resumen por Incubadora</h6>';
+        html += '<h6 class="mt-4 mb-2"><i class="bi bi-building-fill me-1"></i>Resumen por Incubadora</h6>';
         html += '<div class="table-responsive"><table class="table table-sm table-striped">';
         html += '<thead><tr><th>Incubadora</th><th>Filas</th></tr></thead><tbody>';
 
@@ -801,7 +767,7 @@ function mostrarResumen(summary) {
 
     // Resumen por lotes
     if (summary.batches && summary.batches.length > 0) {
-        html += '<h6 class="mt-4 mb-2">📦 Resumen por Lote</h6>';
+        html += '<h6 class="mt-4 mb-2"><i class="bi bi-box-seam-fill me-1"></i>Resumen por Lote</h6>';
         html += '<div class="table-responsive"><table class="table table-sm table-striped">';
         html += '<thead><tr><th>Lote</th><th>Filas</th>';
         
