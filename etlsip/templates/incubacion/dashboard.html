@@ -51,6 +51,16 @@
                         En esta sección importaremos las cargas de incubación desde el archivo cargas.xlsx hacia la tabla dbo.cargas.
                     </div>
                     {% endif %}
+                    {% if selected_etl == 'venta_pollito' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos las ventas de pollito desde la plantilla venta-pollito.xlsx hacia la tabla dbo.VentaPollito.
+                    </div>
+                    {% endif %}
+                    {% if selected_etl == 'baja_pollito' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos las bajas de pollito desde la plantilla Baja_pollito.xlsx hacia la tabla dbo.VentaPollito.
+                    </div>
+                    {% endif %}
                     {% if selected_etl == 'ovoscopia' %}
                     <div class="alert alert-info" role="alert">
                         En esta sección importaremos los registros de ovoscopía desde Mtech hacia dbo.Ovoscopia.
@@ -136,6 +146,10 @@
                                 Archivo Incubesa (Excel)
                                 {% elif is_cargas_import %}
                                 Archivo de cargas (Excel)
+                                {% elif is_venta_pollito_import %}
+                                Archivo de venta de pollito (Excel)
+                                {% elif is_baja_pollito_import %}
+                                Archivo de baja de pollito (Excel)
                                 {% else %}
                                 Archivo Excel
                                 {% endif %}
@@ -153,6 +167,10 @@
                                 Este proceso ejecuta solo la importacion de Incubesa desde el archivo seleccionado.
                                 {% elif is_cargas_import %}
                                 Seleccione el archivo cargas.xlsx para ejecutar o previsualizar la importación.
+                                {% elif is_venta_pollito_import %}
+                                Seleccione el archivo venta-pollito.xlsx para ejecutar o previsualizar la importación.
+                                {% elif is_baja_pollito_import %}
+                                Seleccione el archivo Baja_pollito.xlsx para ejecutar o previsualizar la importación.
                                 {% else %}
                                 Debe seleccionar un archivo para ejecutar y para la vista previa.
                                 {% endif %}
@@ -176,7 +194,7 @@
                                 <i class="bi bi-eye-fill me-1"></i>Vista Previa
                             </button>
                             <button type="submit" class="btn btn-success flex-grow-1" id="submitBtn">
-                                {% if is_protein_import or is_cargas_import %}
+                                {% if is_protein_import or is_cargas_import or is_venta_pollito_import or is_baja_pollito_import %}
                                 <i class="bi bi-cloud-arrow-up-fill me-1"></i>Importar Archivo
                                 {% else %}
                                 <i class="bi bi-rocket-takeoff-fill me-1"></i>Ejecutar ETL
@@ -234,7 +252,7 @@
                 </div>
                 <div class="card-body">
                     <div class="command-line" id="cliCommand">
-                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% elif selected_etl == 'presupuesto_incubadoras' %}etl_presupuesto_incubadoras{% elif selected_etl == 'protein_journal_staging' %}etl_protein_journal{% elif selected_etl == 'cargas' %}etl_cargas{% elif selected_etl == 'ovoscopia' %}etl_ovoscopia{% else %}etl_incubacion{% endif %} \<br>
+                        C:/Modelos/pollos/venv/Scripts/python.exe etlsip/manage.py {% if selected_etl == 'costo_prod_detalle' %}etl_costo_prod_detalle{% elif selected_etl == 'presupuesto_incubadoras' %}etl_presupuesto_incubadoras{% elif selected_etl == 'protein_journal_staging' %}etl_protein_journal{% elif selected_etl == 'cargas' %}etl_cargas{% elif selected_etl == 'venta_pollito' %}etl_venta_pollito{% elif selected_etl == 'baja_pollito' %}etl_baja_pollito{% elif selected_etl == 'ovoscopia' %}etl_ovoscopia{% else %}etl_incubacion{% endif %} \<br>
                         {% if not show_excel_controls %}
                         &nbsp;&nbsp;--start-date YYYY-MM-DD \<br>
                         &nbsp;&nbsp;--end-date YYYY-MM-DD \<br>

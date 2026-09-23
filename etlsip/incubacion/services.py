@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import re
+import uuid
 from dataclasses import dataclass
 from decimal import Decimal, ROUND_HALF_UP
 from datetime import date, datetime, timedelta
@@ -107,6 +108,20 @@ class CargasETLConfig:
     sheet_data: str = "Hoja1"
 
 
+@dataclass(frozen=True)
+class VentaPollitoETLConfig:
+    destination: SqlServerConnectionConfig
+    destination_table: str = "dbo.VentaPollito"
+    sheet_data: str = "Hoja1"
+
+
+@dataclass(frozen=True)
+class BajaPollitoETLConfig:
+    destination: SqlServerConnectionConfig
+    destination_table: str = "dbo.VentaPollito"
+    sheet_data: str = "exportar"
+
+
 _IDENTIFIER_PART_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
@@ -142,6 +157,31 @@ CARGAS_NUMERIC_COLUMNS = {
     "Pollos_primera_M", "Orden_prod", "Pollos_primera_Mixto", "Pollos_recuperados",
     "Huevo_recibido", "No_sala",
 }
+
+VENTA_POLLITO_COLUMNS = (
+    "irn", "fecha", "cantidad", "fecha_semana", "tipo", "No_incubadora",
+    "fecha_carga", "fecha_nacimiento", "semana_nacimiento", "granja_lote",
+    "Cliente", "Tipo_documento", "No_documento", "no_ref",
+)
+
+VENTA_POLLITO_SOURCE_HEADERS = (
+    "IRN", "DeliveryDate", "Quantity", "fecha_semana", "tipo", "HatcheryNo",
+    "SetDate", "HatchDate", "ComplexEntityNo", "semana_nacimiento",
+    "ComplexOrderNo", "BillToCustomerNo", "ComplexOrderNo", "RefNo",
+)
+
+VENTA_POLLITO_KEY_COLUMNS = ("irn",)
+
+VENTA_POLLITO_DATE_COLUMNS = {
+    "fecha", "fecha_semana", "fecha_carga", "fecha_nacimiento", "semana_nacimiento",
+}
+
+VENTA_POLLITO_INT_COLUMNS = {"cantidad", "no_ref"}
+
+BAJA_POLLITO_SOURCE_COLUMNS = (
+    "irn", "fecha", "cantidad", "fecha_semana", "tipo", "No_incubadora",
+    "fecha_carga", "fecha_nacimiento", "semana_nacimiento", "granja_lote",
+)
 
 
 def build_connection_string(config: SqlServerConnectionConfig) -> str:
@@ -1759,6 +1799,273 @@ def run_etl_protein_journal(
     finally:
         if destination_conn is not None:
             destination_conn.close()
+
+
+def read_venta_pollito_excel(
+    excel_path: str,
+    sheet_data: str,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    if not os.path.exists(excel_path):
+        raise ValueError(f"Excel file does not exist: {excel_path}")
+
+    workbook = load_workbook(excel_path, data_only=True, read_only=True)
+    try:
+        if sheet_data not in workbook.sheetnames:
+            raise ValueError(f"Missing required sheet: {sheet_data}")
+        rows = list(workbook[sheet_data].iter_rows(values_only=True))
+    finally:
+        workbook.close()
+
+    if not rows:
+        raise ValueError("VentaPollito sheet is empty")
+
+    headers = [str(value).strip() if value is not None else "" for value in rows[0]]
+    expected = [normalize_header_name(header) for header in VENTA_POLLITO_SOURCE_HEADERS]
+    actual = [normalize_header_name(header) for header in headers]
+    if actual != expected:
+        raise ValueError(
+            "VentaPollito sheet has unexpected columns. "
+            f"Expected: {', '.join(VENTA_POLLITO_SOURCE_HEADERS)}"
+        )
+
+    source_indexes = (0, 1, 2, 3, 4, 5, 6, 7, 9, 8, 11, None, 10, 13)
+    return list(VENTA_POLLITO_COLUMNS), [
+        tuple(
+            None if index is None else (row[index] if index < len(row) else None)
+            for index in source_indexes
+        )
+        for row in rows[1:]
+    ]
+
+
+def get_venta_pollito_date_range(excel_path: str, sheet_data: str) -> tuple[date, date]:
+    columns, rows = read_venta_pollito_excel(excel_path, sheet_data)
+    date_index = columns.index("fecha")
+    dates = [parse_excel_date(row[date_index]) for row in rows]
+    if not dates:
+        raise ValueError("No valid fecha values found in VentaPollito sheet")
+    return min(dates), max(dates)
+
+
+def transform_venta_pollito_rows(
+    source_columns: list[str],
+    source_rows: list[tuple[Any, ...]],
+) -> tuple[list[str], list[tuple[Any, ...]], list[tuple[Any, ...]], dict[str, Any]]:
+    required_columns = {
+        "irn", "fecha", "cantidad", "fecha_semana", "tipo", "No_incubadora",
+        "fecha_carga", "fecha_nacimiento", "semana_nacimiento", "granja_lote",
+        "Cliente", "No_documento", "no_ref",
+    }
+    rows: list[tuple[Any, ...]] = []
+    keys: set[tuple[Any, ...]] = set()
+
+    for row_number, source_row in enumerate(source_rows, start=2):
+        values: list[Any] = []
+        for column, value in zip(source_columns, source_row):
+            if column == "Tipo_documento":
+                parsed = None
+            elif column in VENTA_POLLITO_DATE_COLUMNS:
+                parsed = parse_excel_date(value) if value not in (None, "") else None
+            elif column in VENTA_POLLITO_INT_COLUMNS:
+                parsed = parse_excel_int(value, column) if value not in (None, "") else None
+            else:
+                if value in (None, "") and column in required_columns:
+                    raise ValueError(f"Row {row_number}: missing required value for {column}")
+                parsed = str(value).strip() if value not in (None, "") else None
+            if parsed is None and column in required_columns:
+                raise ValueError(f"Row {row_number}: missing required value for {column}")
+            values.append(parsed)
+
+        normalized_row = tuple(values)
+        rows.append(normalized_row)
+        keys.add((normalized_row[source_columns.index("irn")],))
+
+    return list(source_columns), rows, sorted(keys, key=str), {
+        "source_rows": len(source_rows),
+        "transformed_rows": len(rows),
+        "key_count": len(keys),
+    }
+
+
+def delete_venta_pollito_by_keys(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    keys: list[tuple[Any, ...]],
+) -> int:
+    if not keys:
+        return 0
+    table = quote_identifier(destination_table)
+    delete_sql = f"DELETE FROM {table} WHERE {quote_identifier('irn')} = ?"
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for key in keys:
+            cursor.execute(delete_sql, key)
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
+def run_etl_venta_pollito(
+    config: VentaPollitoETLConfig,
+    excel_path: str,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, Any]:
+    source_columns, source_rows = read_venta_pollito_excel(excel_path, config.sheet_data)
+    columns, rows, keys, metrics = transform_venta_pollito_rows(source_columns, source_rows)
+    result = {
+        "source_rows": metrics["source_rows"],
+        "deleted_rows": 0,
+        "inserted_rows": 0,
+        "summary": {**metrics, "excel_path": excel_path, "sheet_data": config.sheet_data},
+    }
+    if dry_run:
+        return result
+
+    destination_conn = open_connection(config.destination)
+    try:
+        destination_conn.autocommit = False
+        result["deleted_rows"] = delete_venta_pollito_by_keys(
+            destination_conn, config.destination_table, keys
+        )
+        result["inserted_rows"] = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+        return result
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        destination_conn.close()
+
+
+def read_baja_pollito_excel(
+    excel_path: str,
+    sheet_data: str,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    if not os.path.exists(excel_path):
+        raise ValueError(f"Excel file does not exist: {excel_path}")
+
+    workbook = load_workbook(excel_path, data_only=True, read_only=True)
+    try:
+        if sheet_data not in workbook.sheetnames:
+            raise ValueError(f"Missing required sheet: {sheet_data}")
+        rows = list(workbook[sheet_data].iter_rows(values_only=True))
+    finally:
+        workbook.close()
+
+    if not rows:
+        raise ValueError("Baja pollito sheet is empty")
+
+    headers = [str(value).strip() if value is not None else "" for value in rows[0]]
+    expected = [normalize_header_name(header) for header in BAJA_POLLITO_SOURCE_COLUMNS]
+    actual = [normalize_header_name(header) for header in headers[:len(expected)]]
+    if actual != expected:
+        raise ValueError(
+            "Baja pollito sheet has unexpected columns. "
+            f"Expected: {', '.join(BAJA_POLLITO_SOURCE_COLUMNS)}"
+        )
+
+    data_rows = [row for row in rows[1:] if any(value not in (None, "") for value in row)]
+    return list(BAJA_POLLITO_SOURCE_COLUMNS), [
+        tuple(row[index] if index < len(row) else None for index in range(len(BAJA_POLLITO_SOURCE_COLUMNS)))
+        for row in data_rows
+    ]
+
+
+def get_baja_pollito_date_range(excel_path: str, sheet_data: str) -> tuple[date, date]:
+    columns, rows = read_baja_pollito_excel(excel_path, sheet_data)
+    date_index = columns.index("fecha")
+    dates = [parse_excel_date(row[date_index]) for row in rows]
+    if not dates:
+        raise ValueError("No valid fecha values found in Baja pollito sheet")
+    return min(dates), max(dates)
+
+
+def transform_baja_pollito_rows(
+    source_columns: list[str],
+    source_rows: list[tuple[Any, ...]],
+) -> tuple[list[str], list[tuple[Any, ...]], list[tuple[Any, ...]], dict[str, Any]]:
+    required_columns = set(BAJA_POLLITO_SOURCE_COLUMNS)
+    rows: list[tuple[Any, ...]] = []
+    keys: set[tuple[Any, ...]] = set()
+    source_indexes = {column: index for index, column in enumerate(source_columns)}
+
+    for row_number, source_row in enumerate(source_rows, start=2):
+        values: list[Any] = []
+        for column in BAJA_POLLITO_SOURCE_COLUMNS:
+            value = source_row[source_indexes[column]]
+            if column in VENTA_POLLITO_DATE_COLUMNS:
+                parsed = parse_excel_date(value) if value not in (None, "") else None
+            elif column in VENTA_POLLITO_INT_COLUMNS:
+                parsed = parse_excel_int(value, column) if value not in (None, "") else None
+            else:
+                parsed = str(value).strip() if value not in (None, "") else None
+            if parsed is None and column in required_columns:
+                raise ValueError(f"Row {row_number}: missing required value for {column}")
+            values.append(parsed)
+
+        source_irn = values[source_indexes["irn"]]
+        generated_irn = str(uuid.uuid5(uuid.NAMESPACE_URL, f"baja-pollito:{source_irn}"))
+        lote = values[source_indexes["granja_lote"]]
+        values.extend(("BAJA", "INTERNO", f"BAJA-{lote}", 0))
+        normalized_row = (generated_irn, *values[1:])
+        rows.append(normalized_row)
+        keys.add((generated_irn,))
+
+    return list(VENTA_POLLITO_COLUMNS), rows, sorted(keys, key=str), {
+        "source_rows": len(source_rows),
+        "transformed_rows": len(rows),
+        "key_count": len(keys),
+        "generated_fields": ["irn", "Cliente", "Tipo_documento", "No_documento", "no_ref"],
+    }
+
+
+def run_etl_baja_pollito(
+    config: BajaPollitoETLConfig,
+    excel_path: str,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, Any]:
+    source_columns, source_rows = read_baja_pollito_excel(excel_path, config.sheet_data)
+    columns, rows, keys, metrics = transform_baja_pollito_rows(source_columns, source_rows)
+    result = {
+        "source_rows": metrics["source_rows"],
+        "deleted_rows": 0,
+        "inserted_rows": 0,
+        "summary": {**metrics, "excel_path": excel_path, "sheet_data": config.sheet_data},
+    }
+    if dry_run:
+        return result
+
+    destination_conn = open_connection(config.destination)
+    try:
+        destination_conn.autocommit = False
+        result["deleted_rows"] = delete_venta_pollito_by_keys(
+            destination_conn, config.destination_table, keys
+        )
+        result["inserted_rows"] = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+        return result
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        destination_conn.close()
 
 
 def calculate_data_summary(

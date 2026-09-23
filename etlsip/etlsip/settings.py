@@ -376,6 +376,50 @@ ETL_CARGAS = {
 }
 
 
+ETL_VENTA_POLLITO = {
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_VENTA_POLLITO_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_VENTA_POLLITO_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_VENTA_POLLITO_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_VENTA_POLLITO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_VENTA_POLLITO_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_VENTA_POLLITO_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_VENTA_POLLITO_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'DESTINATION_TABLE': os.getenv('ETL_VENTA_POLLITO_DEST_TABLE', 'dbo.VentaPollito'),
+    'EXCEL_PATH': os.getenv('ETL_VENTA_POLLITO_EXCEL_PATH', str(BASE_DIR.parent / 'data' / 'excelfiles' / 'venta-pollito.xlsx')),
+    'SHEET_DATA': os.getenv('ETL_VENTA_POLLITO_SHEET_DATA', 'Hoja1'),
+}
+
+
+ETL_BAJA_POLLITO = {
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_BAJA_POLLITO_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_BAJA_POLLITO_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_BAJA_POLLITO_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_BAJA_POLLITO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_BAJA_POLLITO_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_BAJA_POLLITO_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_BAJA_POLLITO_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'DESTINATION_TABLE': os.getenv('ETL_BAJA_POLLITO_DEST_TABLE', 'dbo.VentaPollito'),
+    'EXCEL_PATH': os.getenv('ETL_BAJA_POLLITO_EXCEL_PATH', str(BASE_DIR.parent / 'data' / 'excelfiles' / 'Baja_pollito.xlsx')),
+    'SHEET_DATA': os.getenv('ETL_BAJA_POLLITO_SHEET_DATA', 'exportar'),
+}
+
+
 # Keycloak Configuration
 KEYCLOAK_CONFIG = {
     'SERVER_URL': os.getenv('KEYCLOAK_SERVER', 'https://cdkcpro.pronaca.com/auth/'),

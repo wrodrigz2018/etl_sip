@@ -20,6 +20,8 @@ from incubacion.management.commands.etl_protein_journal import Command as ETLPro
 from incubacion.management.commands.etl_presupuesto_incubadoras import Command as ETLPresupuestoCommand
 from incubacion.management.commands.etl_recepcion import Command as ETLRecepcionCommand
 from incubacion.management.commands.etl_cargas import Command as ETLCargasCommand
+from incubacion.management.commands.etl_baja_pollito import Command as ETLBajaPollitoCommand
+from incubacion.management.commands.etl_venta_pollito import Command as ETLVentaPollitoCommand
 from incubacion.management.commands.etl_ovoscopia import Command as ETLOvoscopiaCommand
 from incubacion.models import ETLRunAudit
 
@@ -59,6 +61,18 @@ ETL_DEFINITIONS = {
         "label": "Importar cargas de incubación",
         "command": "etl_cargas",
         "build_config": ETLCargasCommand._build_config,
+        "filter_label": "Archivo Excel",
+    },
+    "venta_pollito": {
+        "label": "Importar venta de pollito",
+        "command": "etl_venta_pollito",
+        "build_config": ETLVentaPollitoCommand._build_config,
+        "filter_label": "Archivo Excel",
+    },
+    "baja_pollito": {
+        "label": "Importar baja de pollito",
+        "command": "etl_baja_pollito",
+        "build_config": ETLBajaPollitoCommand._build_config,
         "filter_label": "Archivo Excel",
     },
     "ovoscopia": {
@@ -148,6 +162,10 @@ def etl_dashboard(request):
         return redirect("incubacion:etl_dashboard_recepcion")
     if selected_etl == "cargas":
         return redirect("incubacion:etl_dashboard_cargas")
+    if selected_etl == "venta_pollito":
+        return redirect("incubacion:etl_dashboard_venta_pollito")
+    if selected_etl == "baja_pollito":
+        return redirect("incubacion:etl_dashboard_baja_pollito")
     if selected_etl == "ovoscopia":
         return redirect("incubacion:etl_dashboard_ovoscopia")
     return redirect("incubacion:etl_dashboard_incubacion")
@@ -168,6 +186,10 @@ def _render_dashboard(request, etl_type: str):
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="recepcion")[:20]
     elif etl_type == "cargas":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="cargas")[:20]
+    elif etl_type == "venta_pollito":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="venta_pollito")[:20]
+    elif etl_type == "baja_pollito":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="baja_pollito")[:20]
     elif etl_type == "ovoscopia":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="ovoscopia")[:20]
     else:
@@ -184,6 +206,8 @@ def _render_dashboard(request, etl_type: str):
         "protein_journal_staging": "incubacion:etl_execute_protein_journal",
         "recepcion": "incubacion:etl_execute_recepcion",
         "cargas": "incubacion:etl_execute_cargas",
+        "venta_pollito": "incubacion:etl_execute_venta_pollito",
+        "baja_pollito": "incubacion:etl_execute_baja_pollito",
         "ovoscopia": "incubacion:etl_execute_ovoscopia",
     }
     preview_url_map = {
@@ -193,6 +217,8 @@ def _render_dashboard(request, etl_type: str):
         "protein_journal_staging": "incubacion:etl_preview_protein_journal",
         "recepcion": "incubacion:etl_preview_recepcion",
         "cargas": "incubacion:etl_preview_cargas",
+        "venta_pollito": "incubacion:etl_preview_venta_pollito",
+        "baja_pollito": "incubacion:etl_preview_baja_pollito",
         "ovoscopia": "incubacion:etl_preview_ovoscopia",
     }
 
@@ -206,6 +232,12 @@ def _render_dashboard(request, etl_type: str):
     elif etl_type == "cargas":
         etl_settings = getattr(settings, "ETL_CARGAS", {})
         default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
+    elif etl_type == "venta_pollito":
+        etl_settings = getattr(settings, "ETL_VENTA_POLLITO", {})
+        default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
+    elif etl_type == "baja_pollito":
+        etl_settings = getattr(settings, "ETL_BAJA_POLLITO", {})
+        default_excel_path = str(etl_settings.get("EXCEL_PATH", ""))
 
     context = {
         "form": form,
@@ -216,9 +248,11 @@ def _render_dashboard(request, etl_type: str):
         "etl_label": etl_definition["label"],
         "execute_url": execute_url_map.get(etl_type, "incubacion:etl_execute_incubacion"),
         "preview_url": preview_url_map.get(etl_type, "incubacion:etl_preview_incubacion"),
-        "show_excel_controls": etl_type in {"presupuesto_incubadoras", "protein_journal_staging", "cargas"},
+        "show_excel_controls": etl_type in {"presupuesto_incubadoras", "protein_journal_staging", "cargas", "venta_pollito", "baja_pollito"},
         "is_protein_import": etl_type == "protein_journal_staging",
         "is_cargas_import": etl_type == "cargas",
+        "is_venta_pollito_import": etl_type == "venta_pollito",
+        "is_baja_pollito_import": etl_type == "baja_pollito",
         "is_ovoscopia_import": etl_type == "ovoscopia",
         "default_excel_path": default_excel_path,
     }
@@ -265,6 +299,20 @@ def etl_dashboard_recepcion(request):
 def etl_dashboard_cargas(request):
     """Dedicated dashboard for importing incubation loads."""
     return _render_dashboard(request, "cargas")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_venta_pollito(request):
+    """Dedicated dashboard for importing chick sales."""
+    return _render_dashboard(request, "venta_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_baja_pollito(request):
+    """Dedicated dashboard for importing chick removals."""
+    return _render_dashboard(request, "baja_pollito")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -333,6 +381,22 @@ def etl_execute_cargas(request):
 @login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.change_etlrunaudit", raise_exception=True)
 @require_POST
+def etl_execute_venta_pollito(request):
+    """Execute the VentaPollito Excel import explicitly."""
+    return _execute_etl_for_type(request, "venta_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_baja_pollito(request):
+    """Execute the BajaPollito Excel import explicitly."""
+    return _execute_etl_for_type(request, "baja_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
 def etl_execute_ovoscopia(request):
     return _execute_etl_for_type(request, "ovoscopia")
 
@@ -341,7 +405,7 @@ def _execute_etl_for_type(request, etl_type: str):
     """Execute ETL for a fixed etl_type."""
     form = ETLExecutionForm(request.POST)
 
-    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging", "cargas"}
+    excel_etl_types = {"presupuesto_incubadoras", "protein_journal_staging", "cargas", "venta_pollito", "baja_pollito"}
 
     if etl_type in excel_etl_types:
         try:
@@ -409,6 +473,20 @@ def _execute_etl_for_type(request, etl_type: str):
 
                 if etl_type == "cargas":
                     start_date, end_date = get_cargas_date_range(
+                        excel_path=resolved_excel_path,
+                        sheet_data=config.sheet_data,
+                    )
+                elif etl_type == "venta_pollito":
+                    from incubacion.services import get_venta_pollito_date_range
+
+                    start_date, end_date = get_venta_pollito_date_range(
+                        excel_path=resolved_excel_path,
+                        sheet_data=config.sheet_data,
+                    )
+                elif etl_type == "baja_pollito":
+                    from incubacion.services import get_baja_pollito_date_range
+
+                    start_date, end_date = get_baja_pollito_date_range(
                         excel_path=resolved_excel_path,
                         sheet_data=config.sheet_data,
                     )
@@ -563,6 +641,48 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         audit.progress_percent = 40
         audit.save(update_fields=["status_message", "progress_percent"])
         result = run_etl_cargas(
+            config=config,
+            excel_path=excel_path,
+            dry_run=dry_run,
+            batch_size=batch_size,
+        )
+        return {
+            "source_rows": int(result.get("source_rows", 0)),
+            "deleted_rows": int(result.get("deleted_rows", 0)),
+            "inserted_rows": int(result.get("inserted_rows", 0)),
+            "summary": result.get("summary", {}),
+        }
+
+    if etl_type == "venta_pollito":
+        if not excel_path:
+            raise ValueError("No Excel path provided for VentaPollito ETL")
+        from incubacion.services import run_etl_venta_pollito
+
+        audit.status_message = "Leyendo archivo Excel..."
+        audit.progress_percent = 40
+        audit.save(update_fields=["status_message", "progress_percent"])
+        result = run_etl_venta_pollito(
+            config=config,
+            excel_path=excel_path,
+            dry_run=dry_run,
+            batch_size=batch_size,
+        )
+        return {
+            "source_rows": int(result.get("source_rows", 0)),
+            "deleted_rows": int(result.get("deleted_rows", 0)),
+            "inserted_rows": int(result.get("inserted_rows", 0)),
+            "summary": result.get("summary", {}),
+        }
+
+    if etl_type == "baja_pollito":
+        if not excel_path:
+            raise ValueError("No Excel path provided for BajaPollito ETL")
+        from incubacion.services import run_etl_baja_pollito
+
+        audit.status_message = "Leyendo archivo Excel..."
+        audit.progress_percent = 40
+        audit.save(update_fields=["status_message", "progress_percent"])
+        result = run_etl_baja_pollito(
             config=config,
             excel_path=excel_path,
             dry_run=dry_run,
@@ -748,6 +868,22 @@ def etl_preview_cargas(request):
 
 @login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_preview_venta_pollito(request):
+    """Return VentaPollito Excel preview as JSON."""
+    return _etl_preview_for_type(request, "venta_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_preview_baja_pollito(request):
+    """Return BajaPollito Excel preview as JSON."""
+    return _etl_preview_for_type(request, "baja_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
 @require_GET
 def etl_preview_ovoscopia(request):
     return _etl_preview_for_type(request, "ovoscopia")
@@ -771,6 +907,10 @@ def _etl_preview_for_type(request, etl_type: str):
         transform_presupuesto_rows,
         read_cargas_excel,
         transform_cargas_rows,
+        read_venta_pollito_excel,
+        transform_venta_pollito_rows,
+        read_baja_pollito_excel,
+        transform_baja_pollito_rows,
         get_cargas_date_range,
     )
 
@@ -842,6 +982,26 @@ def _etl_preview_for_type(request, etl_type: str):
                         )
                         mapped_columns, mapped_rows, _keys, metrics = transform_cargas_rows(
                             *read_cargas_excel(resolved_excel_path, config.sheet_data),
+                        )
+                    elif etl_type == "venta_pollito":
+                        from incubacion.services import get_venta_pollito_date_range
+
+                        start_date, end_date = get_venta_pollito_date_range(
+                            excel_path=resolved_excel_path,
+                            sheet_data=config.sheet_data,
+                        )
+                        mapped_columns, mapped_rows, _keys, metrics = transform_venta_pollito_rows(
+                            *read_venta_pollito_excel(resolved_excel_path, config.sheet_data),
+                        )
+                    elif etl_type == "baja_pollito":
+                        from incubacion.services import get_baja_pollito_date_range
+
+                        start_date, end_date = get_baja_pollito_date_range(
+                            excel_path=resolved_excel_path,
+                            sheet_data=config.sheet_data,
+                        )
+                        mapped_columns, mapped_rows, _keys, metrics = transform_baja_pollito_rows(
+                            *read_baja_pollito_excel(resolved_excel_path, config.sheet_data),
                         )
                     else:
                         start_date, end_date = get_protein_journal_date_range(
@@ -941,6 +1101,10 @@ def _etl_preview_for_type(request, etl_type: str):
         # Prepare response
         if etl_type == "costo_prod_detalle":
             filter_values = list(config.hatcheries)
+        elif etl_type == "venta_pollito":
+            filter_values = [f"Hoja={config.sheet_data}"]
+        elif etl_type == "baja_pollito":
+            filter_values = [f"Hoja={config.sheet_data}", "tipo=Eliminados"]
         elif etl_type == "ovoscopia":
             filter_values = [f"HatchDate={start_date.isoformat()}..{end_date.isoformat()}"]
         elif etl_type == "recepcion":
