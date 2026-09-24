@@ -75,17 +75,17 @@
                     <a class="menu-block{% if selected_etl == 'protein_journal_staging' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_protein_journal' %}"><i class="bi bi-file-earmark-spreadsheet"></i> Importar costo por lote de Incubesa</a>
                 </div>
             </details>
-            <details class="menu-accordion menu-accordion--zootecnicos" {% if selected_etl == 'recepcion' or selected_etl == 'cargas' or selected_etl == 'venta_pollito' or selected_etl == 'baja_pollito' or selected_etl == 'ovoscopia' %}open{% endif %}>
+            <details class="menu-accordion menu-accordion--zootecnicos" {% if selected_etl == 'recepcion' or selected_etl == 'venta_huevo' or selected_etl == 'prod_huevos' or selected_etl == 'cargas' or selected_etl == 'venta_pollito' or selected_etl == 'venta_pollito_protein' or selected_etl == 'baja_pollito' or selected_etl == 'ovoscopia' %}open{% endif %}>
                 <summary><span><i class="bi bi-activity"></i> Zootécnicos</span></summary>
                 <div class="menu-accordion-content">
                     <a class="menu-block{% if selected_etl == 'recepcion' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_recepcion' %}"><i class="bi bi-box-arrow-in-down"></i> Importar recepción de huevos</a>
+                    <a class="menu-block{% if selected_etl == 'prod_huevos' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_prod_huevos' %}"><i class="bi bi-graph-up"></i> Importar producción de huevos</a>
                     <a class="menu-block{% if selected_etl == 'cargas' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_cargas' %}"><i class="bi bi-truck"></i> Importar cargas</a>
                     <a class="menu-block{% if selected_etl == 'venta_pollito' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_venta_pollito' %}"><i class="bi bi-cart-check"></i> Importar venta de pollito</a>
+                    <a class="menu-block{% if selected_etl == 'venta_pollito_protein' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_venta_pollito_protein' %}"><i class="bi bi-cart-plus"></i> Importar venta de pollito (Protein)</a>
                     <a class="menu-block{% if selected_etl == 'baja_pollito' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_baja_pollito' %}"><i class="bi bi-arrow-down-circle"></i> Importar baja de pollito</a>
                     <a class="menu-block{% if selected_etl == 'ovoscopia' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_ovoscopia' %}"><i class="bi bi-search"></i> Importar ovoscopia</a>
-                    <span class="menu-block menu-block-disabled"><i class="bi bi-egg-fried"></i> Importar nacimiento</span>
-                    <span class="menu-block menu-block-disabled"><i class="bi bi-arrow-left-right"></i> Importar transferencia de huevos</span>
-                    <span class="menu-block menu-block-disabled"><i class="bi bi-cart"></i> Importar venta de huevos</span>
+                    <a class="menu-block{% if selected_etl == 'venta_huevo' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_venta_huevo' %}"><i class="bi bi-cart"></i> Importar venta de huevos</a>
                 </div>
             </details>
         </nav>

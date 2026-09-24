@@ -46,6 +46,11 @@
                         En esta sección importaremos la recepción de huevos por incubadora, granja y lote desde el sistema Protein.
                     </div>
                     {% endif %}
+                    {% if selected_etl == 'prod_huevos' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos la producción diaria de huevos por granja y lote desde el sistema Protein hacia BrdZoo.dbo.ProdHuevos.
+                    </div>
+                    {% endif %}
                     {% if selected_etl == 'cargas' %}
                     <div class="alert alert-info" role="alert">
                         En esta sección importaremos las cargas de incubación desde el archivo cargas.xlsx hacia la tabla dbo.cargas.
@@ -56,6 +61,11 @@
                         En esta sección importaremos las ventas de pollito desde la plantilla venta-pollito.xlsx hacia la tabla dbo.VentaPollito.
                     </div>
                     {% endif %}
+                    {% if selected_etl == 'venta_pollito_protein' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos la venta de pollito bb directamente desde el sistema Protein hacia la tabla dbo.VentaPollito.
+                    </div>
+                    {% endif %}
                     {% if selected_etl == 'baja_pollito' %}
                     <div class="alert alert-info" role="alert">
                         En esta sección importaremos las bajas de pollito desde la plantilla Baja_pollito.xlsx hacia la tabla dbo.VentaPollito.
@@ -64,6 +74,11 @@
                     {% if selected_etl == 'ovoscopia' %}
                     <div class="alert alert-info" role="alert">
                         En esta sección importaremos los registros de ovoscopía desde Mtech hacia dbo.Ovoscopia.
+                    </div>
+                    {% endif %}
+                    {% if selected_etl == 'venta_huevo' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos la venta de huevo incubable desde el sistema Protein hacia BrdZoo.dbo.HuevosVendidos.
                     </div>
                     {% endif %}
                     <form id="etlForm" method="post" action="{% url execute_url %}" enctype="multipart/form-data" novalidate>

@@ -19,9 +19,12 @@ from incubacion.management.commands.etl_incubacion import Command as ETLCommand
 from incubacion.management.commands.etl_protein_journal import Command as ETLProteinJournalCommand
 from incubacion.management.commands.etl_presupuesto_incubadoras import Command as ETLPresupuestoCommand
 from incubacion.management.commands.etl_recepcion import Command as ETLRecepcionCommand
+from incubacion.management.commands.etl_venta_huevo import Command as ETLVentaHuevoCommand
+from incubacion.management.commands.etl_prod_huevos import Command as ETLProdHuevosCommand
 from incubacion.management.commands.etl_cargas import Command as ETLCargasCommand
 from incubacion.management.commands.etl_baja_pollito import Command as ETLBajaPollitoCommand
 from incubacion.management.commands.etl_venta_pollito import Command as ETLVentaPollitoCommand
+from incubacion.management.commands.etl_venta_pollito_protein import Command as ETLVentaPollitoProteinCommand
 from incubacion.management.commands.etl_ovoscopia import Command as ETLOvoscopiaCommand
 from incubacion.models import ETLRunAudit
 
@@ -57,6 +60,18 @@ ETL_DEFINITIONS = {
         "build_config": ETLRecepcionCommand._build_config,
         "filter_label": "Codigo Transaccion",
     },
+    "venta_huevo": {
+        "label": "Importar venta de huevos",
+        "command": "etl_venta_huevo",
+        "build_config": ETLVentaHuevoCommand._build_config,
+        "filter_label": "Rango de fechas",
+    },
+    "prod_huevos": {
+        "label": "Importar producción de huevos",
+        "command": "etl_prod_huevos",
+        "build_config": ETLProdHuevosCommand._build_config,
+        "filter_label": "Rango de fechas",
+    },
     "cargas": {
         "label": "Importar cargas de incubación",
         "command": "etl_cargas",
@@ -68,6 +83,12 @@ ETL_DEFINITIONS = {
         "command": "etl_venta_pollito",
         "build_config": ETLVentaPollitoCommand._build_config,
         "filter_label": "Archivo Excel",
+    },
+    "venta_pollito_protein": {
+        "label": "Importar venta de pollito (Protein)",
+        "command": "etl_venta_pollito_protein",
+        "build_config": ETLVentaPollitoProteinCommand._build_config,
+        "filter_label": "Rango de fechas",
     },
     "baja_pollito": {
         "label": "Importar baja de pollito",
@@ -160,10 +181,16 @@ def etl_dashboard(request):
         return redirect("incubacion:etl_dashboard_protein_journal")
     if selected_etl == "recepcion":
         return redirect("incubacion:etl_dashboard_recepcion")
+    if selected_etl == "venta_huevo":
+        return redirect("incubacion:etl_dashboard_venta_huevo")
+    if selected_etl == "prod_huevos":
+        return redirect("incubacion:etl_dashboard_prod_huevos")
     if selected_etl == "cargas":
         return redirect("incubacion:etl_dashboard_cargas")
     if selected_etl == "venta_pollito":
         return redirect("incubacion:etl_dashboard_venta_pollito")
+    if selected_etl == "venta_pollito_protein":
+        return redirect("incubacion:etl_dashboard_venta_pollito_protein")
     if selected_etl == "baja_pollito":
         return redirect("incubacion:etl_dashboard_baja_pollito")
     if selected_etl == "ovoscopia":
@@ -184,10 +211,16 @@ def _render_dashboard(request, etl_type: str):
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="protein_journal_staging")[:20]
     elif etl_type == "recepcion":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="recepcion")[:20]
+    elif etl_type == "venta_huevo":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="venta_huevo")[:20]
+    elif etl_type == "prod_huevos":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="prod_huevos")[:20]
     elif etl_type == "cargas":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="cargas")[:20]
     elif etl_type == "venta_pollito":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="venta_pollito")[:20]
+    elif etl_type == "venta_pollito_protein":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="venta_pollito_protein")[:20]
     elif etl_type == "baja_pollito":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="baja_pollito")[:20]
     elif etl_type == "ovoscopia":
@@ -205,8 +238,11 @@ def _render_dashboard(request, etl_type: str):
         "presupuesto_incubadoras": "incubacion:etl_execute_presupuesto",
         "protein_journal_staging": "incubacion:etl_execute_protein_journal",
         "recepcion": "incubacion:etl_execute_recepcion",
+        "venta_huevo": "incubacion:etl_execute_venta_huevo",
+        "prod_huevos": "incubacion:etl_execute_prod_huevos",
         "cargas": "incubacion:etl_execute_cargas",
         "venta_pollito": "incubacion:etl_execute_venta_pollito",
+        "venta_pollito_protein": "incubacion:etl_execute_venta_pollito_protein",
         "baja_pollito": "incubacion:etl_execute_baja_pollito",
         "ovoscopia": "incubacion:etl_execute_ovoscopia",
     }
@@ -216,8 +252,11 @@ def _render_dashboard(request, etl_type: str):
         "presupuesto_incubadoras": "incubacion:etl_preview_presupuesto",
         "protein_journal_staging": "incubacion:etl_preview_protein_journal",
         "recepcion": "incubacion:etl_preview_recepcion",
+        "venta_huevo": "incubacion:etl_preview_venta_huevo",
+        "prod_huevos": "incubacion:etl_preview_prod_huevos",
         "cargas": "incubacion:etl_preview_cargas",
         "venta_pollito": "incubacion:etl_preview_venta_pollito",
+        "venta_pollito_protein": "incubacion:etl_preview_venta_pollito_protein",
         "baja_pollito": "incubacion:etl_preview_baja_pollito",
         "ovoscopia": "incubacion:etl_preview_ovoscopia",
     }
@@ -296,6 +335,20 @@ def etl_dashboard_recepcion(request):
 
 @login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_venta_huevo(request):
+    """Dedicated dashboard for Venta de Huevos."""
+    return _render_dashboard(request, "venta_huevo")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_prod_huevos(request):
+    """Dedicated dashboard for Produccion de Huevos."""
+    return _render_dashboard(request, "prod_huevos")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
 def etl_dashboard_cargas(request):
     """Dedicated dashboard for importing incubation loads."""
     return _render_dashboard(request, "cargas")
@@ -306,6 +359,13 @@ def etl_dashboard_cargas(request):
 def etl_dashboard_venta_pollito(request):
     """Dedicated dashboard for importing chick sales."""
     return _render_dashboard(request, "venta_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_venta_pollito_protein(request):
+    """Dedicated dashboard for importing chick sales directly from Protein."""
+    return _render_dashboard(request, "venta_pollito_protein")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -373,6 +433,22 @@ def etl_execute_recepcion(request):
 @login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.change_etlrunaudit", raise_exception=True)
 @require_POST
+def etl_execute_venta_huevo(request):
+    """Execute Venta de Huevos ETL explicitly."""
+    return _execute_etl_for_type(request, "venta_huevo")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_prod_huevos(request):
+    """Execute Produccion de Huevos ETL explicitly."""
+    return _execute_etl_for_type(request, "prod_huevos")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
 def etl_execute_cargas(request):
     """Execute the cargas Excel import explicitly."""
     return _execute_etl_for_type(request, "cargas")
@@ -384,6 +460,14 @@ def etl_execute_cargas(request):
 def etl_execute_venta_pollito(request):
     """Execute the VentaPollito Excel import explicitly."""
     return _execute_etl_for_type(request, "venta_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_venta_pollito_protein(request):
+    """Execute the VentaPollito Protein (SQL Server) import explicitly."""
+    return _execute_etl_for_type(request, "venta_pollito_protein")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -705,6 +789,36 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
             "summary": {"etl_type": etl_type},
         }
 
+    if etl_type == "venta_huevo":
+        from incubacion.services import run_etl_venta_huevo
+        result = run_etl_venta_huevo(config, start_date, end_date, dry_run, batch_size)
+        return {
+            "source_rows": int(result["source_rows"]),
+            "deleted_rows": int(result["deleted_rows"]),
+            "inserted_rows": int(result["inserted_rows"]),
+            "summary": {"etl_type": etl_type},
+        }
+
+    if etl_type == "prod_huevos":
+        from incubacion.services import run_etl_prod_huevos
+        result = run_etl_prod_huevos(config, start_date, end_date, dry_run, batch_size)
+        return {
+            "source_rows": int(result["source_rows"]),
+            "deleted_rows": int(result["deleted_rows"]),
+            "inserted_rows": int(result["inserted_rows"]),
+            "summary": {"etl_type": etl_type},
+        }
+
+    if etl_type == "venta_pollito_protein":
+        from incubacion.services import run_etl_venta_pollito_protein
+        result = run_etl_venta_pollito_protein(config, start_date, end_date, dry_run, batch_size)
+        return {
+            "source_rows": int(result["source_rows"]),
+            "deleted_rows": int(result["deleted_rows"]),
+            "inserted_rows": int(result["inserted_rows"]),
+            "summary": {"etl_type": etl_type},
+        }
+
     source_conn = open_connection(config.source)
     destination_conn = open_connection(config.destination)
 
@@ -860,6 +974,22 @@ def etl_preview_recepcion(request):
 
 @login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_GET
+def etl_preview_venta_huevo(request):
+    """Return Venta de Huevos preview as JSON."""
+    return _etl_preview_for_type(request, "venta_huevo")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_GET
+def etl_preview_prod_huevos(request):
+    """Return Produccion de Huevos preview as JSON."""
+    return _etl_preview_for_type(request, "prod_huevos")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
 @require_POST
 def etl_preview_cargas(request):
     """Return cargas Excel preview as JSON."""
@@ -872,6 +1002,14 @@ def etl_preview_cargas(request):
 def etl_preview_venta_pollito(request):
     """Return VentaPollito Excel preview as JSON."""
     return _etl_preview_for_type(request, "venta_pollito")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_GET
+def etl_preview_venta_pollito_protein(request):
+    """Return VentaPollito Protein (SQL Server) preview as JSON."""
+    return _etl_preview_for_type(request, "venta_pollito_protein")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -895,6 +1033,9 @@ def _etl_preview_for_type(request, etl_type: str):
         extract_rows,
         extract_rows_costo_prod_detalle,
         extract_rows_recepcion,
+        extract_rows_venta_huevo,
+        extract_rows_prod_huevos,
+        extract_rows_venta_pollito_protein,
         extract_rows_ovoscopia,
         get_destination_columns,
         get_protein_journal_date_range,
@@ -1071,6 +1212,27 @@ def _etl_preview_for_type(request, etl_type: str):
                     egg_trans_code=config.egg_trans_code,
                     facility_type=config.facility_type,
                 )
+            elif etl_type == "venta_huevo":
+                columns, rows = extract_rows_venta_huevo(
+                    source_conn=source_conn,
+                    source_table=config.source_table,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            elif etl_type == "prod_huevos":
+                columns, rows = extract_rows_prod_huevos(
+                    source_conn=source_conn,
+                    source_table=config.source_table,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
+            elif etl_type == "venta_pollito_protein":
+                columns, rows = extract_rows_venta_pollito_protein(
+                    source_conn=source_conn,
+                    source_table=config.source_table,
+                    start_date=start_date,
+                    end_date=end_date,
+                )
             else:
                 columns, rows = extract_rows(
                     source_conn=source_conn,
@@ -1109,6 +1271,12 @@ def _etl_preview_for_type(request, etl_type: str):
             filter_values = [f"HatchDate={start_date.isoformat()}..{end_date.isoformat()}"]
         elif etl_type == "recepcion":
             filter_values = [f"EggTransCode={config.egg_trans_code}", f"FacilityType={config.facility_type}"]
+        elif etl_type == "venta_huevo":
+            filter_values = [f"DeliveryDate={start_date.isoformat()}..{end_date.isoformat()}"]
+        elif etl_type == "prod_huevos":
+            filter_values = [f"xDate={start_date.isoformat()}..{end_date.isoformat()}"]
+        elif etl_type == "venta_pollito_protein":
+            filter_values = [f"DeliveryDate={start_date.isoformat()}..{end_date.isoformat()}"]
         else:
             filter_values = list(config.source_codes)
         sample_rows = mapped_rows[:limit]

@@ -70,6 +70,24 @@ class RecepcionETLConfig:
 
 
 @dataclass(frozen=True)
+class VentaHuevoETLConfig:
+    source: SqlServerConnectionConfig
+    destination: SqlServerConnectionConfig
+    source_table: str
+    destination_table: str
+    destination_date_column: str = "fecha"
+
+
+@dataclass(frozen=True)
+class ProdHuevosETLConfig:
+    source: SqlServerConnectionConfig
+    destination: SqlServerConnectionConfig
+    source_table: str
+    destination_table: str
+    destination_date_column: str = "Fecha"
+
+
+@dataclass(frozen=True)
 class OvoscopiaETLConfig:
     source: SqlServerConnectionConfig
     destination: SqlServerConnectionConfig
@@ -122,7 +140,15 @@ class BajaPollitoETLConfig:
     sheet_data: str = "exportar"
 
 
-_IDENTIFIER_PART_PATTERN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+@dataclass(frozen=True)
+class VentaPollitoProteinETLConfig:
+    source: SqlServerConnectionConfig
+    destination: SqlServerConnectionConfig
+    source_table: str
+    destination_table: str = "dbo.VentaPollito"
+
+
+_IDENTIFIER_PART_PATTERN = re.compile(r"^[^\W\d]\w*$", re.UNICODE)
 
 
 def quote_identifier(identifier: str) -> str:
@@ -425,6 +451,123 @@ def extract_rows_recepcion(
 ) -> tuple[list[str], list[tuple[Any, ...]]]:
     query = build_recepcion_extract_query(source_table=source_table)
     params: list[Any] = [egg_trans_code, facility_type, start_date, end_date]
+
+    cursor = source_conn.cursor()
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
+    cursor.close()
+
+    return columns, [tuple(row) for row in rows]
+
+
+def build_venta_huevo_extract_query(source_table: str) -> str:
+    source_table_safe = quote_identifier(source_table)
+
+    return f"""
+        SELECT
+            DeliveryDate AS fecha,
+            LEFT(ComplexEntityNo, LEN(ComplexEntityNo) - 5) AS no_granja,
+            RTRIM(ComplexEntityNo) AS granja_lote,
+            RTRIM(BillToCustomerNo) AS cliente,
+            RTRIM(SalesSKUNo) AS sku,
+            Quantity AS huevos,
+            IRN AS irn,
+            DATEADD(day, 1 - DATEPART(weekday, DeliveryDate), DeliveryDate) AS fecha_semana,
+            RefNo AS no_ref
+        FROM {source_table_safe}
+        WHERE DeliveryDate >= ? AND DeliveryDate <= ?
+    """
+
+
+def extract_rows_venta_huevo(
+    source_conn: pyodbc.Connection,
+    source_table: str,
+    start_date: date,
+    end_date: date,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    query = build_venta_huevo_extract_query(source_table=source_table)
+    params: list[Any] = [start_date, end_date]
+
+    cursor = source_conn.cursor()
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
+    cursor.close()
+
+    return columns, [tuple(row) for row in rows]
+
+
+def build_venta_pollito_protein_extract_query(source_table: str) -> str:
+    source_table_safe = quote_identifier(source_table)
+
+    return f"""
+        SELECT
+            IRN AS irn,
+            DeliveryDate AS fecha,
+            Quantity AS cantidad,
+            DATEADD(day, 1 - DATEPART(weekday, DeliveryDate), DeliveryDate) AS fecha_semana,
+            'VENTA' AS tipo,
+            HatcheryNo AS no_incubadora,
+            SetDate AS fecha_carga,
+            HatchDate AS fecha_nacimiento,
+            ComplexEntityNo AS granja_lote,
+            DATEADD(day, 1 - DATEPART(weekday, HatchDate), HatchDate) AS semana_nacimiento,
+            BillToCustomerNo AS cliente,
+            ComplexOrderNo AS tipo_documento,
+            RefNo AS no_ref
+        FROM {source_table_safe}
+        WHERE DeliveryDate >= ? AND DeliveryDate <= ?
+    """
+
+
+def extract_rows_venta_pollito_protein(
+    source_conn: pyodbc.Connection,
+    source_table: str,
+    start_date: date,
+    end_date: date,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    query = build_venta_pollito_protein_extract_query(source_table=source_table)
+    params: list[Any] = [start_date, end_date]
+
+    cursor = source_conn.cursor()
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
+    cursor.close()
+
+    return columns, [tuple(row) for row in rows]
+
+
+def build_prod_huevos_extract_query(source_table: str) -> str:
+    source_table_safe = quote_identifier(source_table)
+
+    return f"""
+        SELECT
+            xDate AS fecha,
+            DATEADD(day, 1 - DATEPART(weekday, xDate), xDate) AS Fecha_semana,
+            RTRIM(FarmNo) AS No_granja,
+            RTRIM(FarmNo) + '-' + EntityNo AS Granja_lote,
+            HatchEggsProd AS HI,
+            CullEggsProd AS HNI,
+            HatchEggsProd + CullEggsProd AS HT,
+            YEAR(xDate) * 100 + MONTH(xDate) AS Periodo,
+            YEAR(xDate) AS Año,
+            irn
+        FROM {source_table_safe}
+        WHERE xDate >= ? AND xDate <= ?
+          AND HatchEggsProd + CullEggsProd > 0
+    """
+
+
+def extract_rows_prod_huevos(
+    source_conn: pyodbc.Connection,
+    source_table: str,
+    start_date: date,
+    end_date: date,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    query = build_prod_huevos_extract_query(source_table=source_table)
+    params: list[Any] = [start_date, end_date]
 
     cursor = source_conn.cursor()
     cursor.execute(query, params)
@@ -947,6 +1090,116 @@ def run_etl_recepcion(
             end_date=end_date,
         )
         inserted_rows = insert_rows_recepcion(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+
+        return {
+            "source_rows": len(rows),
+            "deleted_rows": deleted_rows,
+            "inserted_rows": inserted_rows,
+        }
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        source_conn.close()
+        destination_conn.close()
+
+
+def run_etl_venta_huevo(
+    config: VentaHuevoETLConfig,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, int]:
+    source_conn = open_connection(config.source)
+    destination_conn = open_connection(config.destination)
+
+    try:
+        columns, rows = extract_rows_venta_huevo(
+            source_conn=source_conn,
+            source_table=config.source_table,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        if dry_run:
+            return {
+                "source_rows": len(rows),
+                "deleted_rows": 0,
+                "inserted_rows": 0,
+            }
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_range(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            destination_date_column=config.destination_date_column,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        inserted_rows = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+
+        return {
+            "source_rows": len(rows),
+            "deleted_rows": deleted_rows,
+            "inserted_rows": inserted_rows,
+        }
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        source_conn.close()
+        destination_conn.close()
+
+
+def run_etl_prod_huevos(
+    config: ProdHuevosETLConfig,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, int]:
+    source_conn = open_connection(config.source)
+    destination_conn = open_connection(config.destination)
+
+    try:
+        columns, rows = extract_rows_prod_huevos(
+            source_conn=source_conn,
+            source_table=config.source_table,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        if dry_run:
+            return {
+                "source_rows": len(rows),
+                "deleted_rows": 0,
+                "inserted_rows": 0,
+            }
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_range(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            destination_date_column=config.destination_date_column,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        inserted_rows = insert_rows(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             columns=columns,
@@ -1945,6 +2198,58 @@ def run_etl_venta_pollito(
         raise
     finally:
         destination_conn.close()
+
+
+def run_etl_venta_pollito_protein(
+    config: VentaPollitoProteinETLConfig,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, Any]:
+    source_conn = open_connection(config.source)
+
+    try:
+        columns, rows = extract_rows_venta_pollito_protein(
+            source_conn=source_conn,
+            source_table=config.source_table,
+            start_date=start_date,
+            end_date=end_date,
+        )
+
+        if dry_run:
+            return {"source_rows": len(rows), "deleted_rows": 0, "inserted_rows": 0}
+
+        irn_index = columns.index("irn")
+        keys = sorted({(row[irn_index],) for row in rows}, key=str)
+
+        destination_conn = open_connection(config.destination)
+        try:
+            destination_conn.autocommit = False
+            deleted_rows = delete_venta_pollito_by_keys(
+                destination_conn, config.destination_table, keys
+            )
+            inserted_rows = insert_rows(
+                destination_conn=destination_conn,
+                destination_table=config.destination_table,
+                columns=columns,
+                rows=rows,
+                batch_size=batch_size,
+            )
+            destination_conn.commit()
+
+            return {
+                "source_rows": len(rows),
+                "deleted_rows": deleted_rows,
+                "inserted_rows": inserted_rows,
+            }
+        except Exception:
+            destination_conn.rollback()
+            raise
+        finally:
+            destination_conn.close()
+    finally:
+        source_conn.close()
 
 
 def read_baja_pollito_excel(

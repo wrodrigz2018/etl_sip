@@ -280,6 +280,116 @@ ETL_RECEPCION = {
 }
 
 
+ETL_VENTA_HUEVO = {
+    'SOURCE': {
+        'SERVER': os.getenv('ETL_VENTA_HUEVO_SOURCE_SERVER', os.getenv('ETL_SOURCE_SERVER', '')),
+        'DATABASE': os.getenv('ETL_VENTA_HUEVO_SOURCE_DATABASE', os.getenv('ETL_SOURCE_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_VENTA_HUEVO_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_VENTA_HUEVO_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_VENTA_HUEVO_SOURCE_TRUSTED_CONNECTION',
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_VENTA_HUEVO_SOURCE_DRIVER',
+            os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_VENTA_HUEVO_SOURCE_TIMEOUT', os.getenv('ETL_SOURCE_TIMEOUT', '30'))),
+    },
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_VENTA_HUEVO_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_VENTA_HUEVO_DEST_DATABASE', 'BrdZoo'),
+        'USERNAME': os.getenv('ETL_VENTA_HUEVO_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_VENTA_HUEVO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_VENTA_HUEVO_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_VENTA_HUEVO_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_VENTA_HUEVO_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'SOURCE_TABLE': os.getenv('ETL_VENTA_HUEVO_SOURCE_TABLE', 'mtech.mvOMShipmentEggUsages'),
+    'DESTINATION_TABLE': os.getenv('ETL_VENTA_HUEVO_DEST_TABLE', 'dbo.HuevosVendidos'),
+    'DESTINATION_DATE_COLUMN': os.getenv('ETL_VENTA_HUEVO_DEST_DATE_COLUMN', 'fecha'),
+}
+
+
+ETL_VENTA_POLLITO_PROTEIN = {
+    'SOURCE': {
+        'SERVER': os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_SERVER', os.getenv('ETL_SOURCE_SERVER', '')),
+        'DATABASE': os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_DATABASE', os.getenv('ETL_SOURCE_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_VENTA_POLLITO_PROTEIN_SOURCE_TRUSTED_CONNECTION',
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_VENTA_POLLITO_PROTEIN_SOURCE_DRIVER',
+            os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_TIMEOUT', os.getenv('ETL_SOURCE_TIMEOUT', '30'))),
+    },
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_DATABASE', os.getenv('ETL_DEST_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_VENTA_POLLITO_PROTEIN_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_VENTA_POLLITO_PROTEIN_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'SOURCE_TABLE': os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_TABLE', 'mtech.mvOMShipmentChickUsages'),
+    'DESTINATION_TABLE': os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_TABLE', 'dbo.VentaPollito'),
+}
+
+
+ETL_PROD_HUEVOS = {
+    'SOURCE': {
+        'SERVER': os.getenv('ETL_PROD_HUEVOS_SOURCE_SERVER', os.getenv('ETL_SOURCE_SERVER', '')),
+        'DATABASE': os.getenv('ETL_PROD_HUEVOS_SOURCE_DATABASE', os.getenv('ETL_SOURCE_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_PROD_HUEVOS_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_PROD_HUEVOS_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_PROD_HUEVOS_SOURCE_TRUSTED_CONNECTION',
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_PROD_HUEVOS_SOURCE_DRIVER',
+            os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_PROD_HUEVOS_SOURCE_TIMEOUT', os.getenv('ETL_SOURCE_TIMEOUT', '30'))),
+    },
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_PROD_HUEVOS_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_PROD_HUEVOS_DEST_DATABASE', 'BrdZoo'),
+        'USERNAME': os.getenv('ETL_PROD_HUEVOS_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_PROD_HUEVOS_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_PROD_HUEVOS_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_PROD_HUEVOS_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_PROD_HUEVOS_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'SOURCE_TABLE': os.getenv('ETL_PROD_HUEVOS_SOURCE_TABLE', 'mtech.mvBimFieldTrans'),
+    'DESTINATION_TABLE': os.getenv('ETL_PROD_HUEVOS_DEST_TABLE', 'dbo.ProdHuevos'),
+    'DESTINATION_DATE_COLUMN': os.getenv('ETL_PROD_HUEVOS_DEST_DATE_COLUMN', 'Fecha'),
+}
+
+
 ETL_OVOSCOPIA = {
     'SOURCE': {
         'SERVER': os.getenv('ETL_OVOSCOPIA_SOURCE_SERVER', '192.168.3.26'),
