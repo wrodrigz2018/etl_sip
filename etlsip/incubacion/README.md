@@ -4,19 +4,11 @@
 
 ### 1.1 Autenticación
 
-La ETL soporta dos modos de autenticación:
+La ETL se autentica exclusivamente contra Keycloak/Active Directory corporativo:
+- Credenciales centralizadas (usuario y contraseña se validan en Keycloak, no en Django)
+- Usuarios locales se sincronizan automáticamente en el primer login exitoso (sin contraseña local)
 
-**Opción A: Keycloak (Recomendado para producción)**
-- Usa el servidor Keycloak corporativo
-- Credenciales centralizadas
-- Usuarios se sincronizan automáticamente
-
-**Opción B: Autenticación Local (Desarrollo)**
-- Usuarios locales en Django
-- Sin dependencia externa
-- Más simple para testing
-
-Ver [KEYCLOAK.md](KEYCLOAK.md) para detalles de integración Keycloak.
+Ver [KEYCLOAK.md](KEYCLOAK.md) para detalles de integración.
 
 Edita `etlsip/.env` con tus valores reales (la plantilla está en `etlsip/.env.example`):
 

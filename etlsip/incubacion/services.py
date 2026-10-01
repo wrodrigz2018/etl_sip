@@ -88,6 +88,18 @@ class ProdHuevosETLConfig:
 
 
 @dataclass(frozen=True)
+class AlojamientoETLConfig:
+    source: SqlServerConnectionConfig
+    destination: SqlServerConnectionConfig
+    source_table: str
+    entities_table: str
+    destination_table: str
+    destination_date_column: str = "Fecha"
+    hatchery_no: str = "INCVIRTPRON"
+    grn: str = "h"
+
+
+@dataclass(frozen=True)
 class OvoscopiaETLConfig:
     source: SqlServerConnectionConfig
     destination: SqlServerConnectionConfig
@@ -578,6 +590,56 @@ def extract_rows_prod_huevos(
     return columns, [tuple(row) for row in rows]
 
 
+def build_alojamiento_extract_query(source_table: str, entities_table: str) -> str:
+    source_table_safe = quote_identifier(source_table)
+    entities_table_safe = quote_identifier(entities_table)
+
+    return f"""
+        SELECT DISTINCT
+            RTRIM(ct.FarmNo) AS No_granja,
+            RTRIM(ct.FarmNo) + '-' + ct.EntityNo AS Granja_lote,
+            ct.ComplexEntityNo AS Lote_galpon,
+            ct.HouseNo AS no_galpon,
+            RTRIM(ct.FarmNo) + '-' + ct.HouseNo AS Granja_galpon,
+            ct.EventDate AS Fecha,
+            CASE WHEN ct.Sex = 1 THEN ct.HeadPlaced ELSE 0 END AS Hembras,
+            CASE WHEN ct.Sex = 2 THEN ct.HeadPlaced ELSE 0 END AS Machos,
+            e.BreedNo AS Linea_H,
+            e.ProductNo AS Linea_M,
+            e.BreedName AS Linea_progenie
+        FROM {source_table_safe} ct
+        INNER JOIN {entities_table_safe} e
+            ON ct.ProteinEntitiesIRN = e.IRN
+            AND ct.HouseNo = e.HouseNo
+            AND ct.ComplexEntityNo = e.ComplexEntityNo
+        WHERE ct.HatcheryNo = ?
+          AND ct.EventDate >= ? AND ct.EventDate <= ?
+          AND ct.HeadPlaced > 0
+          AND e.GRN = ?
+    """
+
+
+def extract_rows_alojamiento(
+    source_conn: pyodbc.Connection,
+    source_table: str,
+    entities_table: str,
+    start_date: date,
+    end_date: date,
+    hatchery_no: str,
+    grn: str,
+) -> tuple[list[str], list[tuple[Any, ...]]]:
+    query = build_alojamiento_extract_query(source_table=source_table, entities_table=entities_table)
+    params: list[Any] = [hatchery_no, start_date, end_date, grn]
+
+    cursor = source_conn.cursor()
+    cursor.execute(query, params)
+    rows = cursor.fetchall()
+    columns = [column[0] for column in cursor.description]
+    cursor.close()
+
+    return columns, [tuple(row) for row in rows]
+
+
 def build_ovoscopia_extract_query() -> str:
     return """
         SELECT h.HatcheryNo AS No_incubadora,
@@ -673,7 +735,7 @@ def get_destination_column_details(
 
     cursor = destination_conn.cursor()
     query = """
-    SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE
+    SELECT COLUMN_NAME, DATA_TYPE, NUMERIC_PRECISION, NUMERIC_SCALE, CHARACTER_MAXIMUM_LENGTH
     FROM INFORMATION_SCHEMA.COLUMNS
     WHERE TABLE_SCHEMA = ? AND TABLE_NAME = ?
     ORDER BY ORDINAL_POSITION
@@ -683,12 +745,13 @@ def get_destination_column_details(
     cursor.close()
 
     details: dict[str, dict[str, Any]] = {}
-    for column_name, data_type, precision, scale in rows:
+    for column_name, data_type, precision, scale, max_length in rows:
         details[column_name.lower()] = {
             "name": column_name,
             "data_type": data_type,
             "precision": precision,
             "scale": scale,
+            "max_length": max_length,
         }
     return details
 
@@ -724,6 +787,41 @@ def normalize_decimal_rows_for_destination(
 
             quantizer = Decimal(1).scaleb(-scale)
             mutable_row[column_index] = value.quantize(quantizer, rounding=ROUND_HALF_UP)
+
+        normalized_rows.append(tuple(mutable_row))
+
+    return normalized_rows
+
+
+def normalize_string_rows_for_destination(
+    mapped_columns: list[str],
+    mapped_rows: list[tuple[Any, ...]],
+    destination_column_details: dict[str, dict[str, Any]],
+) -> list[tuple[Any, ...]]:
+    """Truncate string values that exceed the destination column's max length."""
+    string_types = {"char", "varchar", "nchar", "nvarchar"}
+    truncate_positions: list[tuple[int, int]] = []
+
+    for index, column_name in enumerate(mapped_columns):
+        column_meta = destination_column_details.get(column_name.lower())
+        if not column_meta:
+            continue
+
+        data_type = str(column_meta.get("data_type", "")).lower()
+        max_length = column_meta.get("max_length")
+        if data_type in string_types and max_length is not None and max_length > 0:
+            truncate_positions.append((index, int(max_length)))
+
+    if not truncate_positions:
+        return mapped_rows
+
+    normalized_rows: list[tuple[Any, ...]] = []
+    for row in mapped_rows:
+        mutable_row = list(row)
+        for column_index, max_length in truncate_positions:
+            value = mutable_row[column_index]
+            if isinstance(value, str) and len(value) > max_length:
+                mutable_row[column_index] = value[:max_length]
 
         normalized_rows.append(tuple(mutable_row))
 
@@ -830,6 +928,11 @@ def insert_rows(
         mapped_rows=mapped_rows,
         destination_column_details=destination_column_details,
     )
+    mapped_rows = normalize_string_rows_for_destination(
+        mapped_columns=mapped_columns,
+        mapped_rows=mapped_rows,
+        destination_column_details=destination_column_details,
+    )
 
     destination_table_safe = quote_identifier(destination_table)
     columns_safe = ", ".join(quote_identifier(column) for column in mapped_columns)
@@ -842,7 +945,6 @@ def insert_rows(
 
     cursor = destination_conn.cursor()
     cursor.fast_executemany = fast_executemany
-
     inserted_rows = 0
     for index in range(0, len(mapped_rows), batch_size):
         chunk = mapped_rows[index : index + batch_size]
@@ -885,6 +987,11 @@ def insert_rows_recepcion(
 
     destination_column_details = get_destination_column_details(destination_conn, destination_table)
     mapped_rows = normalize_decimal_rows_for_destination(
+        mapped_columns=mapped_columns,
+        mapped_rows=mapped_rows,
+        destination_column_details=destination_column_details,
+    )
+    mapped_rows = normalize_string_rows_for_destination(
         mapped_columns=mapped_columns,
         mapped_rows=mapped_rows,
         destination_column_details=destination_column_details,
@@ -1182,6 +1289,64 @@ def run_etl_prod_huevos(
             source_table=config.source_table,
             start_date=start_date,
             end_date=end_date,
+        )
+
+        if dry_run:
+            return {
+                "source_rows": len(rows),
+                "deleted_rows": 0,
+                "inserted_rows": 0,
+            }
+
+        destination_conn.autocommit = False
+        deleted_rows = delete_destination_range(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            destination_date_column=config.destination_date_column,
+            start_date=start_date,
+            end_date=end_date,
+        )
+        inserted_rows = insert_rows(
+            destination_conn=destination_conn,
+            destination_table=config.destination_table,
+            columns=columns,
+            rows=rows,
+            batch_size=batch_size,
+        )
+        destination_conn.commit()
+
+        return {
+            "source_rows": len(rows),
+            "deleted_rows": deleted_rows,
+            "inserted_rows": inserted_rows,
+        }
+    except Exception:
+        destination_conn.rollback()
+        raise
+    finally:
+        source_conn.close()
+        destination_conn.close()
+
+
+def run_etl_alojamiento(
+    config: AlojamientoETLConfig,
+    start_date: date,
+    end_date: date,
+    dry_run: bool,
+    batch_size: int,
+) -> dict[str, int]:
+    source_conn = open_connection(config.source)
+    destination_conn = open_connection(config.destination)
+
+    try:
+        columns, rows = extract_rows_alojamiento(
+            source_conn=source_conn,
+            source_table=config.source_table,
+            entities_table=config.entities_table,
+            start_date=start_date,
+            end_date=end_date,
+            hatchery_no=config.hatchery_no,
+            grn=config.grn,
         )
 
         if dry_run:

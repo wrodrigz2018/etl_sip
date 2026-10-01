@@ -51,6 +51,11 @@
                         En esta sección importaremos la producción diaria de huevos por granja y lote desde el sistema Protein hacia BrdZoo.dbo.ProdHuevos.
                     </div>
                     {% endif %}
+                    {% if selected_etl == 'alojamiento' %}
+                    <div class="alert alert-info" role="alert">
+                        En esta sección importaremos el alojamiento de reproductoras por granja y galpón desde el sistema Protein hacia BrdZoo.dbo.Alojamiento.
+                    </div>
+                    {% endif %}
                     {% if selected_etl == 'cargas' %}
                     <div class="alert alert-info" role="alert">
                         En esta sección importaremos las cargas de incubación desde el archivo cargas.xlsx hacia la tabla dbo.cargas.

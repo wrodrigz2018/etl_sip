@@ -390,6 +390,46 @@ ETL_PROD_HUEVOS = {
 }
 
 
+ETL_ALOJAMIENTO = {
+    'SOURCE': {
+        'SERVER': os.getenv('ETL_ALOJAMIENTO_SOURCE_SERVER', os.getenv('ETL_SOURCE_SERVER', '')),
+        'DATABASE': os.getenv('ETL_ALOJAMIENTO_SOURCE_DATABASE', os.getenv('ETL_SOURCE_DATABASE', '')),
+        'USERNAME': os.getenv('ETL_ALOJAMIENTO_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_ALOJAMIENTO_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_ALOJAMIENTO_SOURCE_TRUSTED_CONNECTION',
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_ALOJAMIENTO_SOURCE_DRIVER',
+            os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_ALOJAMIENTO_SOURCE_TIMEOUT', os.getenv('ETL_SOURCE_TIMEOUT', '30'))),
+    },
+    'DESTINATION': {
+        'SERVER': os.getenv('ETL_ALOJAMIENTO_DEST_SERVER', os.getenv('ETL_DEST_SERVER', '')),
+        'DATABASE': os.getenv('ETL_ALOJAMIENTO_DEST_DATABASE', 'BrdZoo'),
+        'USERNAME': os.getenv('ETL_ALOJAMIENTO_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
+        'PASSWORD': os.getenv('ETL_ALOJAMIENTO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
+        'TRUSTED_CONNECTION': env_bool(
+            'ETL_ALOJAMIENTO_DEST_TRUSTED_CONNECTION',
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        ),
+        'DRIVER': os.getenv(
+            'ETL_ALOJAMIENTO_DEST_DRIVER',
+            os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
+        ),
+        'TIMEOUT': int(os.getenv('ETL_ALOJAMIENTO_DEST_TIMEOUT', os.getenv('ETL_DEST_TIMEOUT', '30'))),
+    },
+    'SOURCE_TABLE': os.getenv('ETL_ALOJAMIENTO_SOURCE_TABLE', 'mtech.mvHimChickTrans'),
+    'ENTITIES_TABLE': os.getenv('ETL_ALOJAMIENTO_ENTITIES_TABLE', 'mtech.mvProteinEntities'),
+    'DESTINATION_TABLE': os.getenv('ETL_ALOJAMIENTO_DEST_TABLE', 'dbo.Alojamiento'),
+    'DESTINATION_DATE_COLUMN': os.getenv('ETL_ALOJAMIENTO_DEST_DATE_COLUMN', 'Fecha'),
+    'HATCHERY_NO': os.getenv('ETL_ALOJAMIENTO_HATCHERY_NO', 'INCVIRTPRON'),
+    'GRN': os.getenv('ETL_ALOJAMIENTO_GRN', 'h'),
+}
+
+
 ETL_OVOSCOPIA = {
     'SOURCE': {
         'SERVER': os.getenv('ETL_OVOSCOPIA_SOURCE_SERVER', '192.168.3.26'),

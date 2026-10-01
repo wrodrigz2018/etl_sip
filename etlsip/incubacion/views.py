@@ -5,7 +5,7 @@ import tempfile
 from datetime import date, datetime
 
 from django.conf import settings
-from django.contrib.auth import authenticate, login, logout
+from django.contrib.auth import login, logout
 from django.contrib.auth.decorators import login_required, permission_required
 from django.contrib.auth.models import Group, Permission, User
 from django.db.models import Q
@@ -13,6 +13,7 @@ from django.http import JsonResponse
 from django.shortcuts import redirect, render
 from django.views.decorators.http import require_GET, require_POST
 
+from incubacion.auth import KeycloakAuthenticator
 from incubacion.forms import ETLExecutionForm
 from incubacion.management.commands.etl_costo_prod_detalle import Command as ETLCostoProdDetalleCommand
 from incubacion.management.commands.etl_incubacion import Command as ETLCommand
@@ -21,6 +22,7 @@ from incubacion.management.commands.etl_presupuesto_incubadoras import Command a
 from incubacion.management.commands.etl_recepcion import Command as ETLRecepcionCommand
 from incubacion.management.commands.etl_venta_huevo import Command as ETLVentaHuevoCommand
 from incubacion.management.commands.etl_prod_huevos import Command as ETLProdHuevosCommand
+from incubacion.management.commands.etl_alojamiento import Command as ETLAlojamientoCommand
 from incubacion.management.commands.etl_cargas import Command as ETLCargasCommand
 from incubacion.management.commands.etl_baja_pollito import Command as ETLBajaPollitoCommand
 from incubacion.management.commands.etl_venta_pollito import Command as ETLVentaPollitoCommand
@@ -72,6 +74,12 @@ ETL_DEFINITIONS = {
         "build_config": ETLProdHuevosCommand._build_config,
         "filter_label": "Rango de fechas",
     },
+    "alojamiento": {
+        "label": "Importar alojamiento de reproductoras",
+        "command": "etl_alojamiento",
+        "build_config": ETLAlojamientoCommand._build_config,
+        "filter_label": "Rango de fechas",
+    },
     "cargas": {
         "label": "Importar cargas de incubación",
         "command": "etl_cargas",
@@ -113,7 +121,7 @@ def index(request):
 
 
 def etl_login(request):
-    """Authenticate users against the local Django database."""
+    """Authenticate users against Keycloak/Active Directory."""
     if request.user.is_authenticated:
         return redirect("incubacion:etl_dashboard_incubacion")
 
@@ -121,8 +129,23 @@ def etl_login(request):
         username = request.POST.get("username", "").strip()
         password = request.POST.get("password", "").strip()
 
-        user = authenticate(request, username=username, password=password)
-        if user is not None:
+        authenticator = KeycloakAuthenticator(
+            server_url=settings.KEYCLOAK_CONFIG["SERVER_URL"],
+            client_id=settings.KEYCLOAK_CONFIG["CLIENT_ID"],
+            realm_name=settings.KEYCLOAK_CONFIG["REALM_NAME"],
+        )
+        userinfo = authenticator.authenticate(username, password)
+
+        if userinfo is not None:
+            # Keep a local shadow user for sessions/permissions; AD/Keycloak owns the password.
+            user, _ = User.objects.get_or_create(username=userinfo["username"] or username)
+            user.email = userinfo["email"]
+            user.first_name = userinfo["first_name"]
+            user.last_name = userinfo["last_name"]
+            user.set_unusable_password()
+            user.save()
+
+            user.backend = "django.contrib.auth.backends.ModelBackend"
             login(request, user)
             return redirect("incubacion:etl_dashboard_incubacion")
 
@@ -185,6 +208,8 @@ def etl_dashboard(request):
         return redirect("incubacion:etl_dashboard_venta_huevo")
     if selected_etl == "prod_huevos":
         return redirect("incubacion:etl_dashboard_prod_huevos")
+    if selected_etl == "alojamiento":
+        return redirect("incubacion:etl_dashboard_alojamiento")
     if selected_etl == "cargas":
         return redirect("incubacion:etl_dashboard_cargas")
     if selected_etl == "venta_pollito":
@@ -215,6 +240,8 @@ def _render_dashboard(request, etl_type: str):
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="venta_huevo")[:20]
     elif etl_type == "prod_huevos":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="prod_huevos")[:20]
+    elif etl_type == "alojamiento":
+        runs = ETLRunAudit.objects.filter(summary_json__etl_type="alojamiento")[:20]
     elif etl_type == "cargas":
         runs = ETLRunAudit.objects.filter(summary_json__etl_type="cargas")[:20]
     elif etl_type == "venta_pollito":
@@ -240,6 +267,7 @@ def _render_dashboard(request, etl_type: str):
         "recepcion": "incubacion:etl_execute_recepcion",
         "venta_huevo": "incubacion:etl_execute_venta_huevo",
         "prod_huevos": "incubacion:etl_execute_prod_huevos",
+        "alojamiento": "incubacion:etl_execute_alojamiento",
         "cargas": "incubacion:etl_execute_cargas",
         "venta_pollito": "incubacion:etl_execute_venta_pollito",
         "venta_pollito_protein": "incubacion:etl_execute_venta_pollito_protein",
@@ -254,6 +282,7 @@ def _render_dashboard(request, etl_type: str):
         "recepcion": "incubacion:etl_preview_recepcion",
         "venta_huevo": "incubacion:etl_preview_venta_huevo",
         "prod_huevos": "incubacion:etl_preview_prod_huevos",
+        "alojamiento": "incubacion:etl_preview_alojamiento",
         "cargas": "incubacion:etl_preview_cargas",
         "venta_pollito": "incubacion:etl_preview_venta_pollito",
         "venta_pollito_protein": "incubacion:etl_preview_venta_pollito_protein",
@@ -345,6 +374,13 @@ def etl_dashboard_venta_huevo(request):
 def etl_dashboard_prod_huevos(request):
     """Dedicated dashboard for Produccion de Huevos."""
     return _render_dashboard(request, "prod_huevos")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+def etl_dashboard_alojamiento(request):
+    """Dedicated dashboard for Alojamiento de Reproductoras."""
+    return _render_dashboard(request, "alojamiento")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -444,6 +480,14 @@ def etl_execute_venta_huevo(request):
 def etl_execute_prod_huevos(request):
     """Execute Produccion de Huevos ETL explicitly."""
     return _execute_etl_for_type(request, "prod_huevos")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.change_etlrunaudit", raise_exception=True)
+@require_POST
+def etl_execute_alojamiento(request):
+    """Execute Alojamiento de Reproductoras ETL explicitly."""
+    return _execute_etl_for_type(request, "alojamiento")
 
 
 @login_required(login_url="incubacion:etl_login")
@@ -809,6 +853,16 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
             "summary": {"etl_type": etl_type},
         }
 
+    if etl_type == "alojamiento":
+        from incubacion.services import run_etl_alojamiento
+        result = run_etl_alojamiento(config, start_date, end_date, dry_run, batch_size)
+        return {
+            "source_rows": int(result["source_rows"]),
+            "deleted_rows": int(result["deleted_rows"]),
+            "inserted_rows": int(result["inserted_rows"]),
+            "summary": {"etl_type": etl_type},
+        }
+
     if etl_type == "venta_pollito_protein":
         from incubacion.services import run_etl_venta_pollito_protein
         result = run_etl_venta_pollito_protein(config, start_date, end_date, dry_run, batch_size)
@@ -990,6 +1044,14 @@ def etl_preview_prod_huevos(request):
 
 @login_required(login_url="incubacion:etl_login")
 @permission_required("incubacion.view_etlrunaudit", raise_exception=True)
+@require_GET
+def etl_preview_alojamiento(request):
+    """Return Alojamiento de Reproductoras preview as JSON."""
+    return _etl_preview_for_type(request, "alojamiento")
+
+
+@login_required(login_url="incubacion:etl_login")
+@permission_required("incubacion.view_etlrunaudit", raise_exception=True)
 @require_POST
 def etl_preview_cargas(request):
     """Return cargas Excel preview as JSON."""
@@ -1035,6 +1097,7 @@ def _etl_preview_for_type(request, etl_type: str):
         extract_rows_recepcion,
         extract_rows_venta_huevo,
         extract_rows_prod_huevos,
+        extract_rows_alojamiento,
         extract_rows_venta_pollito_protein,
         extract_rows_ovoscopia,
         get_destination_columns,
@@ -1226,6 +1289,16 @@ def _etl_preview_for_type(request, etl_type: str):
                     start_date=start_date,
                     end_date=end_date,
                 )
+            elif etl_type == "alojamiento":
+                columns, rows = extract_rows_alojamiento(
+                    source_conn=source_conn,
+                    source_table=config.source_table,
+                    entities_table=config.entities_table,
+                    start_date=start_date,
+                    end_date=end_date,
+                    hatchery_no=config.hatchery_no,
+                    grn=config.grn,
+                )
             elif etl_type == "venta_pollito_protein":
                 columns, rows = extract_rows_venta_pollito_protein(
                     source_conn=source_conn,
@@ -1275,6 +1348,8 @@ def _etl_preview_for_type(request, etl_type: str):
             filter_values = [f"DeliveryDate={start_date.isoformat()}..{end_date.isoformat()}"]
         elif etl_type == "prod_huevos":
             filter_values = [f"xDate={start_date.isoformat()}..{end_date.isoformat()}"]
+        elif etl_type == "alojamiento":
+            filter_values = [f"HatcheryNo={config.hatchery_no}", f"EventDate={start_date.isoformat()}..{end_date.isoformat()}"]
         elif etl_type == "venta_pollito_protein":
             filter_values = [f"DeliveryDate={start_date.isoformat()}..{end_date.isoformat()}"]
         else:

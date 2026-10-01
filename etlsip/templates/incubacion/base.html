@@ -88,6 +88,12 @@
                     <a class="menu-block{% if selected_etl == 'venta_huevo' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_venta_huevo' %}"><i class="bi bi-cart"></i> Importar venta de huevos</a>
                 </div>
             </details>
+            <details class="menu-accordion menu-accordion--reproductoras" {% if selected_etl == 'alojamiento' %}open{% endif %}>
+                <summary><span><i class="bi bi-egg-fried"></i> Reproductoras</span></summary>
+                <div class="menu-accordion-content">
+                    <a class="menu-block{% if selected_etl == 'alojamiento' %} menu-block-active{% endif %}" href="{% url 'incubacion:etl_dashboard_alojamiento' %}"><i class="bi bi-house-door"></i> Importar alojamiento de reproductoras</a>
+                </div>
+            </details>
         </nav>
     </aside>
     {% endif %}
