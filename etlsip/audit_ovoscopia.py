@@ -8,7 +8,7 @@ from incubacion.services import build_ovoscopia_extract_query, open_connection, 
 cfg = settings.ETL_OVOSCOPIA
 
 def make(c):
-    return SqlServerConnectionConfig(server=c['SERVER'], database=c['DATABASE'], username=c.get('USERNAME',''), password=c.get('PASSWORD',''), trusted_connection=c.get('TRUSTED_CONNECTION',True), driver=c.get('DRIVER','ODBC Driver 17 for SQL Server'), timeout=c.get('TIMEOUT',30))
+    return SqlServerConnectionConfig(server=c['SERVER'], database=c['DATABASE'], username=c.get('USERNAME',''), password=c.get('PASSWORD',''), trusted_connection=c.get('TRUSTED_CONNECTION',False), driver=c.get('DRIVER','ODBC Driver 17 for SQL Server'), timeout=c.get('TIMEOUT',30))
 source = open_connection(make(cfg['SOURCE']))
 dest = open_connection(make(cfg['DESTINATION']))
 try:

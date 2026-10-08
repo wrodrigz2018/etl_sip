@@ -16,18 +16,18 @@ Edita `etlsip/.env` con tus valores reales (la plantilla está en `etlsip/.env.e
 # SQL Server source (origen de datos)
 ETL_SOURCE_SERVER=192.168.3.26              # IP o nombre del servidor origen
 ETL_SOURCE_DATABASE=Mtech_v7                # Base de datos origen
-ETL_SOURCE_USERNAME=PRONACA\\genapi         # Usuario (si no usas Windows/AD)
-ETL_SOURCE_PASSWORD=                        # Contraseña (si no usas Windows/AD)
-ETL_SOURCE_TRUSTED_CONNECTION=true          # true=Windows/AD, false=SQL user
+ETL_SOURCE_USERNAME=                        # Usuario SQL Server
+ETL_SOURCE_PASSWORD=                        # Contraseña del usuario SQL Server
+ETL_SOURCE_TRUSTED_CONNECTION=false         # Mantener false para autenticación SQL
 ETL_SOURCE_DRIVER=ODBC Driver 17 for SQL Server
 ETL_SOURCE_TIMEOUT=30
 
 # SQL Server destination (destino)
 ETL_DEST_SERVER=1sq-pipbdd                  # IP o nombre del servidor destino
 ETL_DEST_DATABASE=Mtech_v7                  # Base de datos destino
-ETL_DEST_USERNAME=PRONACA\\genapi           # Usuario (si no usas Windows/AD)
-ETL_DEST_PASSWORD=                          # Contraseña (si no usas Windows/AD)
-ETL_DEST_TRUSTED_CONNECTION=true            # true=Windows/AD, false=SQL user
+ETL_DEST_USERNAME=                          # Usuario SQL Server
+ETL_DEST_PASSWORD=                          # Contraseña del usuario SQL Server
+ETL_DEST_TRUSTED_CONNECTION=false           # Mantener false para autenticación SQL
 ETL_DEST_DRIVER=ODBC Driver 17 for SQL Server
 ETL_DEST_TIMEOUT=30
 
@@ -202,7 +202,7 @@ Si repites el mismo rango,:
 → Completa `ETL_DEST_TABLE` en `.env`
 
 ### Error: "Source connection failed: login failed"
-→ Valida credenciales SQL Server, usuario y contraseña en `.env`, y configuración de Windows/AD
+→ Valida el usuario y la contraseña SQL Server en `.env` y que `ETL_SOURCE_TRUSTED_CONNECTION` o `ETL_DEST_TRUSTED_CONNECTION` estén en `false`
 
 ### Error: "Source table access failed: ... not found"
 → Valida que la tabla origen existe: `SELECT * FROM mtech.mvProteinJournalTrans`

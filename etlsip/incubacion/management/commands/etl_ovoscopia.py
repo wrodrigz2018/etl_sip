@@ -50,7 +50,7 @@ class Command(BaseCommand):
             return SqlServerConnectionConfig(
                 server=values["SERVER"], database=values["DATABASE"],
                 username=values.get("USERNAME", ""), password=values.get("PASSWORD", ""),
-                trusted_connection=bool(values.get("TRUSTED_CONNECTION", True)),
+                trusted_connection=bool(values.get("TRUSTED_CONNECTION", False)),
                 driver=values.get("DRIVER", "ODBC Driver 17 for SQL Server"),
                 timeout=int(values.get("TIMEOUT", 30)),
             )

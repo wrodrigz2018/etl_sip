@@ -133,7 +133,7 @@ class Command(BaseCommand):
             database=source_cfg["DATABASE"],
             username=source_cfg.get("USERNAME", ""),
             password=source_cfg.get("PASSWORD", ""),
-            trusted_connection=bool(source_cfg.get("TRUSTED_CONNECTION", True)),
+            trusted_connection=bool(source_cfg.get("TRUSTED_CONNECTION", False)),
             driver=source_cfg.get("DRIVER", "ODBC Driver 17 for SQL Server"),
             timeout=int(source_cfg.get("TIMEOUT", 30)),
         )
@@ -143,7 +143,7 @@ class Command(BaseCommand):
             database=destination_cfg["DATABASE"],
             username=destination_cfg.get("USERNAME", ""),
             password=destination_cfg.get("PASSWORD", ""),
-            trusted_connection=bool(destination_cfg.get("TRUSTED_CONNECTION", True)),
+            trusted_connection=bool(destination_cfg.get("TRUSTED_CONNECTION", False)),
             driver=destination_cfg.get("DRIVER", "ODBC Driver 17 for SQL Server"),
             timeout=int(destination_cfg.get("TIMEOUT", 30)),
         )

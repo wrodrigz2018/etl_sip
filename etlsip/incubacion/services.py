@@ -31,7 +31,7 @@ class SqlServerConnectionConfig:
     database: str
     username: str = ""
     password: str = ""
-    trusted_connection: bool = True
+    trusted_connection: bool = False
     driver: str = "ODBC Driver 17 for SQL Server"
     timeout: int = 30
 
@@ -223,6 +223,11 @@ BAJA_POLLITO_SOURCE_COLUMNS = (
 
 
 def build_connection_string(config: SqlServerConnectionConfig) -> str:
+    if config.trusted_connection:
+        raise ValueError(
+            "Windows integrated authentication is disabled; use SQL Server credentials."
+        )
+
     base = [
         f"DRIVER={{{config.driver}}}",
         f"SERVER={config.server}",
@@ -230,11 +235,8 @@ def build_connection_string(config: SqlServerConnectionConfig) -> str:
         f"Connection Timeout={config.timeout}",
     ]
 
-    if config.trusted_connection:
-        base.append("Trusted_Connection=yes")
-    else:
-        base.append(f"UID={config.username}")
-        base.append(f"PWD={config.password}")
+    base.append(f"UID={config.username}")
+    base.append(f"PWD={config.password}")
 
     return ";".join(base) + ";"
 

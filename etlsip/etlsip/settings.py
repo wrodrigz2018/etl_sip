@@ -150,13 +150,15 @@ def env_bool(name: str, default: bool) -> bool:
 def _build_db_extra_params(trusted_connection: bool, explicit_params: str) -> str:
     params = []
     if trusted_connection:
-        params.append('Trusted_Connection=yes')
+        raise ValueError(
+            'Windows integrated authentication is disabled; use SQL Server credentials.'
+        )
     if explicit_params:
         params.append(explicit_params.strip())
     return ';'.join(params)
 
 
-DJANGO_DB_TRUSTED_CONNECTION = env_bool('DJANGO_DB_TRUSTED_CONNECTION', True)
+DJANGO_DB_TRUSTED_CONNECTION = env_bool('DJANGO_DB_TRUSTED_CONNECTION', False)
 DJANGO_DB_EXTRA_PARAMS = _build_db_extra_params(
     trusted_connection=DJANGO_DB_TRUSTED_CONNECTION,
     explicit_params=os.getenv('DJANGO_DB_EXTRA_PARAMS', 'TrustServerCertificate=yes'),
@@ -171,7 +173,7 @@ ETL_INCUBACION = {
         'DATABASE': os.getenv('ETL_SOURCE_DATABASE', ''),
         'USERNAME': os.getenv('ETL_SOURCE_USERNAME', ''),
         'PASSWORD': os.getenv('ETL_SOURCE_PASSWORD', ''),
-        'TRUSTED_CONNECTION': env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+        'TRUSTED_CONNECTION': env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         'DRIVER': os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server'),
         'TIMEOUT': int(os.getenv('ETL_SOURCE_TIMEOUT', '30')),
     },
@@ -180,7 +182,7 @@ ETL_INCUBACION = {
         'DATABASE': os.getenv('ETL_DEST_DATABASE', ''),
         'USERNAME': os.getenv('ETL_DEST_USERNAME', ''),
         'PASSWORD': os.getenv('ETL_DEST_PASSWORD', ''),
-        'TRUSTED_CONNECTION': env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+        'TRUSTED_CONNECTION': env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         'DRIVER': os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server'),
         'TIMEOUT': int(os.getenv('ETL_DEST_TIMEOUT', '30')),
     },
@@ -204,7 +206,7 @@ ETL_COSTO_PROD_DETALLE = {
         'PASSWORD': os.getenv('ETL_COSTO_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_COSTO_SOURCE_TRUSTED_CONNECTION',
-            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_COSTO_SOURCE_DRIVER',
@@ -219,7 +221,7 @@ ETL_COSTO_PROD_DETALLE = {
         'PASSWORD': os.getenv('ETL_COSTO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_COSTO_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_COSTO_DEST_DRIVER',
@@ -249,7 +251,7 @@ ETL_RECEPCION = {
         'PASSWORD': os.getenv('ETL_RECEPCION_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_RECEPCION_SOURCE_TRUSTED_CONNECTION',
-            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_RECEPCION_SOURCE_DRIVER',
@@ -264,7 +266,7 @@ ETL_RECEPCION = {
         'PASSWORD': os.getenv('ETL_RECEPCION_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_RECEPCION_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_RECEPCION_DEST_DRIVER',
@@ -288,7 +290,7 @@ ETL_VENTA_HUEVO = {
         'PASSWORD': os.getenv('ETL_VENTA_HUEVO_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_VENTA_HUEVO_SOURCE_TRUSTED_CONNECTION',
-            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_VENTA_HUEVO_SOURCE_DRIVER',
@@ -303,7 +305,7 @@ ETL_VENTA_HUEVO = {
         'PASSWORD': os.getenv('ETL_VENTA_HUEVO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_VENTA_HUEVO_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_VENTA_HUEVO_DEST_DRIVER',
@@ -325,7 +327,7 @@ ETL_VENTA_POLLITO_PROTEIN = {
         'PASSWORD': os.getenv('ETL_VENTA_POLLITO_PROTEIN_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_VENTA_POLLITO_PROTEIN_SOURCE_TRUSTED_CONNECTION',
-            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_VENTA_POLLITO_PROTEIN_SOURCE_DRIVER',
@@ -340,7 +342,7 @@ ETL_VENTA_POLLITO_PROTEIN = {
         'PASSWORD': os.getenv('ETL_VENTA_POLLITO_PROTEIN_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_VENTA_POLLITO_PROTEIN_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_VENTA_POLLITO_PROTEIN_DEST_DRIVER',
@@ -361,7 +363,7 @@ ETL_PROD_HUEVOS = {
         'PASSWORD': os.getenv('ETL_PROD_HUEVOS_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_PROD_HUEVOS_SOURCE_TRUSTED_CONNECTION',
-            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_PROD_HUEVOS_SOURCE_DRIVER',
@@ -376,7 +378,7 @@ ETL_PROD_HUEVOS = {
         'PASSWORD': os.getenv('ETL_PROD_HUEVOS_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_PROD_HUEVOS_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_PROD_HUEVOS_DEST_DRIVER',
@@ -398,7 +400,7 @@ ETL_ALOJAMIENTO = {
         'PASSWORD': os.getenv('ETL_ALOJAMIENTO_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_ALOJAMIENTO_SOURCE_TRUSTED_CONNECTION',
-            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', True),
+            env_bool('ETL_SOURCE_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_ALOJAMIENTO_SOURCE_DRIVER',
@@ -413,7 +415,7 @@ ETL_ALOJAMIENTO = {
         'PASSWORD': os.getenv('ETL_ALOJAMIENTO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_ALOJAMIENTO_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_ALOJAMIENTO_DEST_DRIVER',
@@ -436,7 +438,7 @@ ETL_OVOSCOPIA = {
         'DATABASE': os.getenv('ETL_OVOSCOPIA_SOURCE_DATABASE', 'Mtech_v7'),
         'USERNAME': os.getenv('ETL_OVOSCOPIA_SOURCE_USERNAME', os.getenv('ETL_SOURCE_USERNAME', '')),
         'PASSWORD': os.getenv('ETL_OVOSCOPIA_SOURCE_PASSWORD', os.getenv('ETL_SOURCE_PASSWORD', '')),
-        'TRUSTED_CONNECTION': env_bool('ETL_OVOSCOPIA_SOURCE_TRUSTED_CONNECTION', True),
+        'TRUSTED_CONNECTION': env_bool('ETL_OVOSCOPIA_SOURCE_TRUSTED_CONNECTION', False),
         'DRIVER': os.getenv('ETL_OVOSCOPIA_SOURCE_DRIVER', os.getenv('ETL_SOURCE_DRIVER', 'ODBC Driver 17 for SQL Server')),
         'TIMEOUT': int(os.getenv('ETL_OVOSCOPIA_SOURCE_TIMEOUT', '30')),
     },
@@ -445,7 +447,7 @@ ETL_OVOSCOPIA = {
         'DATABASE': os.getenv('ETL_OVOSCOPIA_DEST_DATABASE', 'HtcZoo'),
         'USERNAME': os.getenv('ETL_OVOSCOPIA_DEST_USERNAME', os.getenv('ETL_DEST_USERNAME', '')),
         'PASSWORD': os.getenv('ETL_OVOSCOPIA_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
-        'TRUSTED_CONNECTION': env_bool('ETL_OVOSCOPIA_DEST_TRUSTED_CONNECTION', True),
+        'TRUSTED_CONNECTION': env_bool('ETL_OVOSCOPIA_DEST_TRUSTED_CONNECTION', False),
         'DRIVER': os.getenv('ETL_OVOSCOPIA_DEST_DRIVER', os.getenv('ETL_DEST_DRIVER', 'ODBC Driver 17 for SQL Server')),
         'TIMEOUT': int(os.getenv('ETL_OVOSCOPIA_DEST_TIMEOUT', '30')),
     },
@@ -461,7 +463,7 @@ ETL_PRESUPUESTO = {
         'PASSWORD': os.getenv('ETL_PPTO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_PPTO_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_PPTO_DEST_DRIVER',
@@ -486,7 +488,7 @@ ETL_PROTEIN_JOURNAL = {
         'PASSWORD': os.getenv('ETL_PROT_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_PROT_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_PROT_DEST_DRIVER',
@@ -512,7 +514,7 @@ ETL_CARGAS = {
         'PASSWORD': os.getenv('ETL_CARGAS_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_CARGAS_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_CARGAS_DEST_DRIVER',
@@ -534,7 +536,7 @@ ETL_VENTA_POLLITO = {
         'PASSWORD': os.getenv('ETL_VENTA_POLLITO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_VENTA_POLLITO_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_VENTA_POLLITO_DEST_DRIVER',
@@ -556,7 +558,7 @@ ETL_BAJA_POLLITO = {
         'PASSWORD': os.getenv('ETL_BAJA_POLLITO_DEST_PASSWORD', os.getenv('ETL_DEST_PASSWORD', '')),
         'TRUSTED_CONNECTION': env_bool(
             'ETL_BAJA_POLLITO_DEST_TRUSTED_CONNECTION',
-            env_bool('ETL_DEST_TRUSTED_CONNECTION', True),
+            env_bool('ETL_DEST_TRUSTED_CONNECTION', False),
         ),
         'DRIVER': os.getenv(
             'ETL_BAJA_POLLITO_DEST_DRIVER',
