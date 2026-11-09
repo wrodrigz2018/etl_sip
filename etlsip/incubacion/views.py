@@ -700,6 +700,8 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
     """Run ETL and update audit progress."""
     from incubacion.services import (
         delete_destination_range,
+        delete_incubacion_range,
+        delete_recepcion_range,
         extract_rows,
         extract_rows_costo_prod_detalle,
         extract_rows_recepcion,
@@ -915,7 +917,7 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
             delete_start_date = start_date
             delete_end_date = end_date
 
-        if dry_run:
+        if dry_run or (etl_type in {"incubacion", "recepcion"} and not rows):
             return {
                 "source_rows": len(rows),
                 "deleted_rows": 0,
@@ -927,13 +929,32 @@ def _run_etl_with_progress(etl_type, config, excel_path, start_date, end_date, d
         audit.save(update_fields=["status_message", "progress_percent"])
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
-            destination_conn=destination_conn,
-            destination_table=config.destination_table,
-            destination_date_column=config.destination_date_column,
-            start_date=delete_start_date,
-            end_date=delete_end_date,
-        )
+        if etl_type == "incubacion":
+            deleted_rows = delete_incubacion_range(
+                destination_conn=destination_conn,
+                destination_table=config.destination_table,
+                destination_date_column=config.destination_date_column,
+                start_date=delete_start_date,
+                end_date=delete_end_date,
+                location_groups=[row[columns.index("grupo_ubicacion")] for row in rows],
+            )
+        elif etl_type == "recepcion":
+            deleted_rows = delete_recepcion_range(
+                destination_conn=destination_conn,
+                destination_table=config.destination_table,
+                destination_date_column=config.destination_date_column,
+                start_date=delete_start_date,
+                end_date=delete_end_date,
+                hatcheries=[row[columns.index("No_incubadora")] for row in rows],
+            )
+        else:
+            deleted_rows = delete_destination_range(
+                destination_conn=destination_conn,
+                destination_table=config.destination_table,
+                destination_date_column=config.destination_date_column,
+                start_date=delete_start_date,
+                end_date=delete_end_date,
+            )
 
         audit.status_message = "Insertando datos..."
         audit.progress_percent = 75

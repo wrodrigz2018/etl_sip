@@ -395,7 +395,7 @@ def extract_rows(
     columns = [column[0] for column in cursor.description]
     cursor.close()
 
-    return columns, [tuple(row) for row in rows]
+    return columns, strip_string_values([tuple(row) for row in rows])
 
 
 def extract_rows_costo_prod_detalle(
@@ -433,7 +433,7 @@ def extract_rows_costo_prod_detalle(
     columns = [column[0] for column in cursor.description]
     cursor.close()
 
-    return columns, [tuple(row) for row in rows]
+    return columns, strip_string_values([tuple(row) for row in rows])
 
 
 def build_recepcion_extract_query(source_table: str) -> str:
@@ -481,16 +481,16 @@ def build_venta_huevo_extract_query(source_table: str) -> str:
     return f"""
         SELECT
             DeliveryDate AS fecha,
-            LEFT(ComplexEntityNo, LEN(ComplexEntityNo) - 5) AS no_granja,
-            RTRIM(ComplexEntityNo) AS granja_lote,
-            RTRIM(BillToCustomerNo) AS cliente,
-            RTRIM(SalesSKUNo) AS sku,
+            LEFT(LTRIM(RTRIM(ComplexEntityNo)), LEN(LTRIM(RTRIM(ComplexEntityNo))) - 5) AS no_granja,
+            LTRIM(RTRIM(ComplexEntityNo)) AS granja_lote,
+            LTRIM(RTRIM(BillToCustomerNo)) AS cliente,
+            LTRIM(RTRIM(SalesSKUNo)) AS sku,
             Quantity AS huevos,
             IRN AS irn,
             DATEADD(day, 1 - DATEPART(weekday, DeliveryDate), DeliveryDate) AS fecha_semana,
             RefNo AS no_ref
         FROM {source_table_safe}
-        WHERE DeliveryDate >= ? AND DeliveryDate <= ?
+        WHERE DeliveryDate >= ? AND DeliveryDate < ?
     """
 
 
@@ -501,7 +501,7 @@ def extract_rows_venta_huevo(
     end_date: date,
 ) -> tuple[list[str], list[tuple[Any, ...]]]:
     query = build_venta_huevo_extract_query(source_table=source_table)
-    params: list[Any] = [start_date, end_date]
+    params: list[Any] = [start_date, end_date + timedelta(days=1)]
 
     cursor = source_conn.cursor()
     cursor.execute(query, params)
@@ -509,7 +509,16 @@ def extract_rows_venta_huevo(
     columns = [column[0] for column in cursor.description]
     cursor.close()
 
-    return columns, [tuple(row) for row in rows]
+    normalized_rows = strip_string_values([tuple(row) for row in rows])
+    required_indexes = [
+        (column, columns.index(column))
+        for column in ("no_granja", "granja_lote", "cliente", "sku", "irn")
+    ]
+    for row_number, row in enumerate(normalized_rows, start=1):
+        for column, index in required_indexes:
+            if row[index] in (None, ""):
+                raise ValueError(f"Row {row_number}: missing required value for {column}")
+    return columns, normalized_rows
 
 
 def build_venta_pollito_protein_extract_query(source_table: str) -> str:
@@ -550,7 +559,7 @@ def extract_rows_venta_pollito_protein(
     columns = [column[0] for column in cursor.description]
     cursor.close()
 
-    return columns, [tuple(row) for row in rows]
+    return columns, strip_string_values([tuple(row) for row in rows])
 
 
 def build_prod_huevos_extract_query(source_table: str) -> str:
@@ -560,8 +569,8 @@ def build_prod_huevos_extract_query(source_table: str) -> str:
         SELECT
             xDate AS fecha,
             DATEADD(day, 1 - DATEPART(weekday, xDate), xDate) AS Fecha_semana,
-            RTRIM(FarmNo) AS No_granja,
-            RTRIM(FarmNo) + '-' + EntityNo AS Granja_lote,
+            LTRIM(RTRIM(FarmNo)) AS No_granja,
+            LTRIM(RTRIM(FarmNo)) + '-' + LTRIM(RTRIM(EntityNo)) AS Granja_lote,
             HatchEggsProd AS HI,
             CullEggsProd AS HNI,
             HatchEggsProd + CullEggsProd AS HT,
@@ -589,7 +598,7 @@ def extract_rows_prod_huevos(
     columns = [column[0] for column in cursor.description]
     cursor.close()
 
-    return columns, [tuple(row) for row in rows]
+    return columns, strip_string_values([tuple(row) for row in rows])
 
 
 def build_alojamiento_extract_query(source_table: str, entities_table: str) -> str:
@@ -681,7 +690,7 @@ def extract_rows_ovoscopia(
     rows = cursor.fetchall()
     columns = [column[0] for column in cursor.description]
     cursor.close()
-    return columns, [tuple(row) for row in rows]
+    return columns, strip_string_values([tuple(row) for row in rows])
 
 
 def delete_destination_range(
@@ -1046,6 +1055,42 @@ def insert_rows_recepcion(
     return inserted_rows
 
 
+def delete_incubacion_range(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    destination_date_column: str,
+    start_date: date,
+    end_date: date,
+    location_groups: list[Any],
+) -> int:
+    if not location_groups:
+        return 0
+    normalized_groups = sorted({
+        str(value).strip() if value is not None else "" for value in location_groups
+    })
+    if "" in normalized_groups:
+        raise ValueError("Missing grupo_ubicacion in Incubacion import")
+
+    table = quote_identifier(destination_table)
+    date_column = quote_identifier(destination_date_column)
+    group_column = quote_identifier("grupo_costo")
+    delete_sql = f"""
+        DELETE FROM {table}
+        WHERE {date_column} BETWEEN ? AND ?
+          AND LTRIM(RTRIM({group_column})) = ?
+    """
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for group in normalized_groups:
+            cursor.execute(delete_sql, (start_date, end_date, group))
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
 def run_etl(
     config: IncubacionETLConfig,
     start_date: date,
@@ -1065,7 +1110,7 @@ def run_etl(
             source_codes=config.source_codes,
         )
 
-        if dry_run:
+        if dry_run or not rows:
             return {
                 "source_rows": len(rows),
                 "deleted_rows": 0,
@@ -1073,12 +1118,13 @@ def run_etl(
             }
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
+        deleted_rows = delete_incubacion_range(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             destination_date_column=config.destination_date_column,
             start_date=start_date,
             end_date=end_date,
+            location_groups=[row[columns.index("grupo_ubicacion")] for row in rows],
         )
         inserted_rows = insert_rows(
             destination_conn=destination_conn,
@@ -1100,6 +1146,42 @@ def run_etl(
     finally:
         source_conn.close()
         destination_conn.close()
+
+
+def delete_costo_prod_detalle_range(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    destination_date_column: str,
+    start_date: date,
+    end_date: date,
+    hatcheries: list[Any],
+) -> int:
+    if not hatcheries:
+        return 0
+    normalized_hatcheries = sorted({
+        str(value).strip() if value is not None else "" for value in hatcheries
+    })
+    if "" in normalized_hatcheries:
+        raise ValueError("Missing no_incubadora in CostoProdDetalle import")
+
+    table = quote_identifier(destination_table)
+    date_column = quote_identifier(destination_date_column)
+    hatchery_column = quote_identifier("no_incubadora")
+    delete_sql = f"""
+        DELETE FROM {table}
+        WHERE {date_column} BETWEEN ? AND ?
+          AND LTRIM(RTRIM({hatchery_column})) = ?
+    """
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for hatchery in normalized_hatcheries:
+            cursor.execute(delete_sql, (start_date, end_date, hatchery))
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
 
 
 def run_etl_costo_prod_detalle(
@@ -1126,7 +1208,7 @@ def run_etl_costo_prod_detalle(
             farm_type=config.farm_type,
         )
 
-        if dry_run:
+        if dry_run or not rows:
             return {
                 "source_rows": len(rows),
                 "deleted_rows": 0,
@@ -1134,12 +1216,13 @@ def run_etl_costo_prod_detalle(
             }
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
+        deleted_rows = delete_costo_prod_detalle_range(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             destination_date_column=config.destination_date_column,
             start_date=range_start,
             end_date=range_end,
+            hatcheries=[row[columns.index("no_incubadora")] for row in rows],
         )
         inserted_rows = insert_rows(
             destination_conn=destination_conn,
@@ -1163,6 +1246,42 @@ def run_etl_costo_prod_detalle(
         destination_conn.close()
 
 
+def delete_recepcion_range(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    destination_date_column: str,
+    start_date: date,
+    end_date: date,
+    hatcheries: list[Any],
+) -> int:
+    if not hatcheries:
+        return 0
+    normalized_hatcheries = sorted({
+        str(value).strip() if value is not None else "" for value in hatcheries
+    })
+    if "" in normalized_hatcheries:
+        raise ValueError("Missing No_incubadora in Recepcion import")
+
+    table = quote_identifier(destination_table)
+    date_column = quote_identifier(destination_date_column)
+    hatchery_column = quote_identifier("No_incubadora")
+    delete_sql = f"""
+        DELETE FROM {table}
+        WHERE {date_column} BETWEEN ? AND ?
+          AND LTRIM(RTRIM({hatchery_column})) = ?
+    """
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for hatchery in normalized_hatcheries:
+            cursor.execute(delete_sql, (start_date, end_date, hatchery))
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
 def run_etl_recepcion(
     config: RecepcionETLConfig,
     start_date: date,
@@ -1183,7 +1302,7 @@ def run_etl_recepcion(
             facility_type=config.facility_type,
         )
 
-        if dry_run:
+        if dry_run or not rows:
             return {
                 "source_rows": len(rows),
                 "deleted_rows": 0,
@@ -1191,12 +1310,13 @@ def run_etl_recepcion(
             }
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
+        deleted_rows = delete_recepcion_range(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             destination_date_column=config.destination_date_column,
             start_date=start_date,
             end_date=end_date,
+            hatcheries=[row[columns.index("No_incubadora")] for row in rows],
         )
         inserted_rows = insert_rows_recepcion(
             destination_conn=destination_conn,
@@ -1220,6 +1340,43 @@ def run_etl_recepcion(
         destination_conn.close()
 
 
+def delete_venta_huevo_range(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    destination_date_column: str,
+    start_date: date,
+    end_date: date,
+    farms: list[Any],
+) -> int:
+    if not farms:
+        return 0
+    normalized_farms = sorted({
+        str(value).strip() if value is not None else "" for value in farms
+    })
+    if "" in normalized_farms:
+        raise ValueError("Missing no_granja in VentaHuevo import")
+
+    table = quote_identifier(destination_table)
+    date_column = quote_identifier(destination_date_column)
+    farm_column = quote_identifier("no_granja")
+    end_exclusive = end_date + timedelta(days=1)
+    delete_sql = f"""
+        DELETE FROM {table}
+        WHERE {date_column} >= ? AND {date_column} < ?
+          AND LTRIM(RTRIM({farm_column})) = ?
+    """
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for farm in normalized_farms:
+            cursor.execute(delete_sql, (start_date, end_exclusive, farm))
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
 def run_etl_venta_huevo(
     config: VentaHuevoETLConfig,
     start_date: date,
@@ -1238,7 +1395,7 @@ def run_etl_venta_huevo(
             end_date=end_date,
         )
 
-        if dry_run:
+        if dry_run or not rows:
             return {
                 "source_rows": len(rows),
                 "deleted_rows": 0,
@@ -1246,12 +1403,13 @@ def run_etl_venta_huevo(
             }
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
+        deleted_rows = delete_venta_huevo_range(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             destination_date_column=config.destination_date_column,
             start_date=start_date,
             end_date=end_date,
+            farms=[row[columns.index("no_granja")] for row in rows],
         )
         inserted_rows = insert_rows(
             destination_conn=destination_conn,
@@ -1275,6 +1433,42 @@ def run_etl_venta_huevo(
         destination_conn.close()
 
 
+def delete_prod_huevos_range(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    destination_date_column: str,
+    start_date: date,
+    end_date: date,
+    farms: list[Any],
+) -> int:
+    if not farms:
+        return 0
+    normalized_farms = sorted({
+        str(value).strip() if value is not None else "" for value in farms
+    })
+    if "" in normalized_farms:
+        raise ValueError("Missing No_granja in ProdHuevos import")
+
+    table = quote_identifier(destination_table)
+    date_column = quote_identifier(destination_date_column)
+    farm_column = quote_identifier("No_granja")
+    delete_sql = f"""
+        DELETE FROM {table}
+        WHERE {date_column} BETWEEN ? AND ?
+          AND LTRIM(RTRIM({farm_column})) = ?
+    """
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for farm in normalized_farms:
+            cursor.execute(delete_sql, (start_date, end_date, farm))
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
 def run_etl_prod_huevos(
     config: ProdHuevosETLConfig,
     start_date: date,
@@ -1293,7 +1487,7 @@ def run_etl_prod_huevos(
             end_date=end_date,
         )
 
-        if dry_run:
+        if dry_run or not rows:
             return {
                 "source_rows": len(rows),
                 "deleted_rows": 0,
@@ -1301,12 +1495,13 @@ def run_etl_prod_huevos(
             }
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
+        deleted_rows = delete_prod_huevos_range(
             destination_conn=destination_conn,
             destination_table=config.destination_table,
             destination_date_column=config.destination_date_column,
             start_date=start_date,
             end_date=end_date,
+            farms=[row[columns.index("No_granja")] for row in rows],
         )
         inserted_rows = insert_rows(
             destination_conn=destination_conn,
@@ -1388,6 +1583,42 @@ def run_etl_alojamiento(
         destination_conn.close()
 
 
+def delete_ovoscopia_range(
+    destination_conn: pyodbc.Connection,
+    destination_table: str,
+    start_date: date,
+    end_date: date,
+    hatcheries: list[Any],
+) -> int:
+    if not hatcheries:
+        return 0
+    normalized_hatcheries = sorted({
+        str(value).strip() if value is not None else "" for value in hatcheries
+    })
+    if "" in normalized_hatcheries:
+        raise ValueError("Missing No_incubadora in Ovoscopia import")
+
+    table = quote_identifier(destination_table)
+    date_column = quote_identifier("Fecha_nacimiento")
+    hatchery_column = quote_identifier("No_incubadora")
+    end_exclusive = end_date + timedelta(days=1)
+    delete_sql = f"""
+        DELETE FROM {table}
+        WHERE {date_column} >= ? AND {date_column} < ?
+          AND LTRIM(RTRIM({hatchery_column})) = ?
+    """
+    cursor = destination_conn.cursor()
+    deleted_rows = 0
+    try:
+        for hatchery in normalized_hatcheries:
+            cursor.execute(delete_sql, (start_date, end_exclusive, hatchery))
+            if cursor.rowcount > 0:
+                deleted_rows += cursor.rowcount
+    finally:
+        cursor.close()
+    return deleted_rows
+
+
 def run_etl_ovoscopia(
     config: OvoscopiaETLConfig,
     start_date: date,
@@ -1399,12 +1630,13 @@ def run_etl_ovoscopia(
     destination_conn = open_connection(config.destination)
     try:
         columns, rows = extract_rows_ovoscopia(source_conn, start_date, end_date)
-        if dry_run:
+        if dry_run or not rows:
             return {"source_rows": len(rows), "deleted_rows": 0, "inserted_rows": 0}
 
         destination_conn.autocommit = False
-        deleted_rows = delete_destination_range(
-            destination_conn, config.destination_table, "Fecha_nacimiento", start_date, end_date
+        deleted_rows = delete_ovoscopia_range(
+            destination_conn, config.destination_table, start_date, end_date,
+            hatcheries=[row[columns.index("No_incubadora")] for row in rows],
         )
         inserted_rows = insert_rows(
             destination_conn, config.destination_table, columns, rows, batch_size,
@@ -1817,10 +2049,14 @@ def transform_protein_journal_rows(
 
         source_rows += 1
         centro_costo = row[centro_idx]
+        if isinstance(centro_costo, str):
+            centro_costo = centro_costo.strip()
         if centro_costo in (None, ""):
-            continue
+            raise ValueError(f"Missing centro_costo in Incubesa import for fecha={xdate}")
 
         granja_lote = row[granja_idx] if granja_idx < len(row) else None
+        if isinstance(granja_lote, str):
+            granja_lote = granja_lote.strip() or None
 
         try:
             unidades_relativas = parse_excel_int(
@@ -1897,7 +2133,11 @@ def transform_protein_journal_rows(
         "SystemStageNo",
         "fecha_carga",
     ]
-    return destination_columns, generated_rows, sorted(delete_keys), metrics
+    sorted_keys = sorted(
+        delete_keys,
+        key=lambda key: (key[0], str(key[1]), key[2] is not None, str(key[2])),
+    )
+    return destination_columns, generated_rows, sorted_keys, metrics
 
 
 def transform_presupuesto_rows(
@@ -1945,6 +2185,8 @@ def transform_presupuesto_rows(
 
         source_rows += 1
         centro_costo = row[centro_idx]
+        if isinstance(centro_costo, str):
+            centro_costo = centro_costo.strip()
         if centro_costo in (None, ""):
             continue
 
@@ -2311,16 +2553,31 @@ def delete_venta_pollito_by_keys(
     destination_conn: pyodbc.Connection,
     destination_table: str,
     keys: list[tuple[Any, ...]],
+    hatcheries: list[Any] | None = None,
 ) -> int:
     if not keys:
         return 0
     table = quote_identifier(destination_table)
     delete_sql = f"DELETE FROM {table} WHERE {quote_identifier('irn')} = ?"
+    normalized_hatcheries: list[str] = []
+    if hatcheries is not None:
+        if not hatcheries:
+            return 0
+        normalized_hatcheries = sorted({
+            str(value).strip() if value is not None else "" for value in hatcheries
+        })
+        if "" in normalized_hatcheries:
+            raise ValueError("Missing No_incubadora in VentaPollito import")
+        placeholders = ", ".join("?" for _ in normalized_hatcheries)
+        delete_sql += (
+            f" AND LTRIM(RTRIM({quote_identifier('No_incubadora')}))"
+            f" IN ({placeholders})"
+        )
     cursor = destination_conn.cursor()
     deleted_rows = 0
     try:
         for key in keys:
-            cursor.execute(delete_sql, key)
+            cursor.execute(delete_sql, (*key, *normalized_hatcheries))
             if cursor.rowcount > 0:
                 deleted_rows += cursor.rowcount
     finally:
@@ -2349,7 +2606,8 @@ def run_etl_venta_pollito(
     try:
         destination_conn.autocommit = False
         result["deleted_rows"] = delete_venta_pollito_by_keys(
-            destination_conn, config.destination_table, keys
+            destination_conn, config.destination_table, keys,
+            hatcheries=[row[columns.index("No_incubadora")] for row in rows],
         )
         result["inserted_rows"] = insert_rows(
             destination_conn=destination_conn,
@@ -2394,7 +2652,8 @@ def run_etl_venta_pollito_protein(
         try:
             destination_conn.autocommit = False
             deleted_rows = delete_venta_pollito_by_keys(
-                destination_conn, config.destination_table, keys
+                destination_conn, config.destination_table, keys,
+                hatcheries=[row[columns.index("no_incubadora")] for row in rows],
             )
             inserted_rows = insert_rows(
                 destination_conn=destination_conn,
