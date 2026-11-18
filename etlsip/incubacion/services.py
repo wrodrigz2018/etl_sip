@@ -607,11 +607,11 @@ def build_alojamiento_extract_query(source_table: str, entities_table: str) -> s
 
     return f"""
         SELECT DISTINCT
-            RTRIM(ct.FarmNo) AS No_granja,
-            RTRIM(ct.FarmNo) + '-' + ct.EntityNo AS Granja_lote,
-            ct.ComplexEntityNo AS Lote_galpon,
-            ct.HouseNo AS no_galpon,
-            RTRIM(ct.FarmNo) + '-' + ct.HouseNo AS Granja_galpon,
+            LTRIM(RTRIM(ct.FarmNo)) AS No_granja,
+            LTRIM(RTRIM(ct.FarmNo)) + '-' + LTRIM(RTRIM(ct.EntityNo)) AS Granja_lote,
+            LTRIM(RTRIM(ct.ComplexEntityNo)) AS Lote_galpon,
+            LTRIM(RTRIM(ct.HouseNo)) AS no_galpon,
+            LTRIM(RTRIM(ct.FarmNo)) + '-' + LTRIM(RTRIM(ct.HouseNo)) AS Granja_galpon,
             ct.EventDate AS Fecha,
             CASE WHEN ct.Sex = 1 THEN ct.HeadPlaced ELSE 0 END AS Hembras,
             CASE WHEN ct.Sex = 2 THEN ct.HeadPlaced ELSE 0 END AS Machos,
@@ -648,7 +648,7 @@ def extract_rows_alojamiento(
     columns = [column[0] for column in cursor.description]
     cursor.close()
 
-    return columns, [tuple(row) for row in rows]
+    return columns, strip_string_values([tuple(row) for row in rows])
 
 
 def build_ovoscopia_extract_query() -> str:
