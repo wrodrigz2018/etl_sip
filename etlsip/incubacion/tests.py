@@ -5,6 +5,7 @@ from unittest import TestCase
 from unittest.mock import DEFAULT, Mock, patch
 
 from incubacion.services import (
+    build_alojamiento_extract_query,
     build_prod_huevos_extract_query,
     build_venta_huevo_extract_query,
     delete_costo_prod_detalle_range,
@@ -16,6 +17,7 @@ from incubacion.services import (
     delete_venta_huevo_range,
     delete_venta_pollito_by_keys,
     extract_rows,
+    extract_rows_alojamiento,
     extract_rows_costo_prod_detalle,
     extract_rows_ovoscopia,
     extract_rows_prod_huevos,
@@ -1098,3 +1100,54 @@ class IncubacionDashboardTests(TestCase):
                         location_groups=["HAT INC01"],
                     )
                     self.assertEqual(result["inserted_rows"], 1)
+
+
+class AlojamientoEspaciosTests(TestCase):
+    def test_query_trims_codes_before_concatenation(self):
+        sql = " ".join(build_alojamiento_extract_query("mtech.Chick", "mtech.Ent").split())
+
+        self.assertIn("LTRIM(RTRIM(ct.FarmNo)) AS No_granja", sql)
+        self.assertIn(
+            "LTRIM(RTRIM(ct.FarmNo)) + '-' + LTRIM(RTRIM(ct.EntityNo)) AS Granja_lote", sql
+        )
+        self.assertIn("LTRIM(RTRIM(ct.ComplexEntityNo)) AS Lote_galpon", sql)
+        self.assertIn("LTRIM(RTRIM(ct.HouseNo)) AS no_galpon", sql)
+        self.assertIn(
+            "LTRIM(RTRIM(ct.FarmNo)) + '-' + LTRIM(RTRIM(ct.HouseNo)) AS Granja_galpon", sql
+        )
+        # El join con entidades no cambia
+        self.assertIn("AND ct.HouseNo = e.HouseNo", sql)
+
+    def test_extraction_trims_text_and_preserves_other_values(self):
+        columns = [
+            "No_granja", "Granja_lote", "Lote_galpon", "no_galpon", "Granja_galpon",
+            "Fecha", "Hembras", "Machos", "Linea_H", "Linea_M", "Linea_progenie",
+        ]
+        fecha = datetime(2026, 11, 3)
+        cursor = Mock()
+        cursor.description = [(column,) for column in columns]
+        cursor.fetchall.return_value = [
+            (
+                " AH ", "AH-2425      ", "AH-2425-01  ", "01  ", "AH-01  ",
+                fecha, 5000, 0, "ROSS  ", None, "  ROSS 308",
+            ),
+        ]
+        connection = Mock()
+        connection.cursor.return_value = cursor
+
+        actual_columns, rows = extract_rows_alojamiento(
+            connection, "mtech.Chick", "mtech.Ent",
+            date(2026, 11, 1), date(2026, 11, 30), "INCVIRTPRON", "h",
+        )
+
+        self.assertEqual(actual_columns, columns)
+        self.assertEqual(
+            rows,
+            [("AH", "AH-2425", "AH-2425-01", "01", "AH-01",
+              fecha, 5000, 0, "ROSS", None, "ROSS 308")],
+        )
+        cursor.execute.assert_called_once()
+        self.assertEqual(
+            cursor.execute.call_args.args[1],
+            ["INCVIRTPRON", date(2026, 11, 1), date(2026, 11, 30), "h"],
+        )
