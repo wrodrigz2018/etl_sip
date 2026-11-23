@@ -5,9 +5,9 @@
 
    - Hace RESPALDO de cada tabla antes de tocarla (tabla *_bk_20261118).
    - Todo dentro de una transacción: si algo falla, no cambia nada.
-   - NO toca dbo.Alojamiento: el ETL de Alojamiento todavía carga con
-     espacios; si se limpia ahora, la próxima carga volvería a mezclar.
-     Se limpia después de corregir ese módulo del ETL.
+   - NO toca dbo.Alojamiento: esa tabla se limpia con
+     limpieza_alojamiento.sql, DESPUÉS de instalar la versión del ETL
+     que ya carga Alojamiento sin espacios (commit e41d670).
    ===================================================================== */
 
 /* ============================ PARTE 1: BrdZoo ============================ */
